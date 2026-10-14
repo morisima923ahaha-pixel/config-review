@@ -3,6 +3,7 @@
 import copy
 
 from config_review.parser import ConfigNode
+from config_review.vlan import ALL_VLANS, calc_allowed_vlans, format_vlan_list
 
 # 値を 1 つしか持てないコマンド。投入すると、同じコマンドの既存の行を置き換える。
 # 例：description A がある所に description B を投入すると、A は消えて B だけになる。
@@ -15,15 +16,13 @@ OVERWRITE_COMMANDS = (
     "switchport mode",
     "switchport access vlan",
     "switchport trunk native vlan",
-    "switchport trunk allowed vlan",
     "mtu",
     "speed",
     "duplex",
 )
 
-# 上の一覧に当てはまっても、置き換えではなく「追加・削除」の意味になる書き方。
-# switchport trunk allowed vlan add 30 など。今はまだ計算せず、そのまま 1 行として追加する。
-NOT_OVERWRITE_WORDS = ("add", "remove", "except")
+# トランクで通す VLAN の一覧。add・remove があるので、単純な上書きではなく計算して 1 行にまとめる。
+ALLOWED_VLAN = "switchport trunk allowed vlan"
 
 
 def apply_changes(current: ConfigNode, changes: ConfigNode) -> ConfigNode:
@@ -41,6 +40,10 @@ def _merge(target: ConfigNode, changes: ConfigNode) -> None:
     for change in changes.children:
         if change.text.startswith("no "):
             _remove_matching(target, change.text.removeprefix("no "))
+            continue
+
+        if _matches(change.text, ALLOWED_VLAN):
+            _apply_allowed_vlan(target, change.text)
             continue
 
         # 「shutdown」を投入したら、反対の「no shutdown」は残しておけない。
@@ -79,11 +82,32 @@ def _overwrite_command(text: str) -> str | None:
     """text が置き換え対象のコマンドなら、そのコマンド名を返す。違えば None。"""
     for command in OVERWRITE_COMMANDS:
         if text.startswith(command + " "):
-            value = text.removeprefix(command + " ")
-            if value.split()[0] in NOT_OVERWRITE_WORDS:
-                return None
             return command
     return None
+
+
+def _apply_allowed_vlan(target: ConfigNode, text: str) -> None:
+    """allowed vlan の行を計算して、target の中の allowed vlan の行を 1 行に置き換える。
+
+    running-config では、一覧が長いと「allowed vlan 1-100」「allowed vlan add 200」のように
+    複数行に分かれることがある。だから既存の行も上から順に計算して、今の一覧を求める。
+    行が 1 つもないときは、NX-OS の既定値の「全部の VLAN を通す」状態。
+    """
+    lines = [child for child in target.children if _matches(child.text, ALLOWED_VLAN)]
+
+    vlans = set(ALL_VLANS)
+    for line in lines + [ConfigNode(text=text)]:
+        vlans = calc_allowed_vlans(vlans, line.text.removeprefix(ALLOWED_VLAN + " "))
+
+    # 元の行があった場所に、新しい 1 行を入れる（なければ末尾）。
+    position = target.children.index(lines[0]) if lines else len(target.children)
+    _remove_matching(target, ALLOWED_VLAN)
+
+    # 全部の VLAN を通すのは既定値なので、show run には行が出ない。
+    if vlans == ALL_VLANS:
+        return
+    value = format_vlan_list(vlans) if vlans else "none"
+    target.children.insert(position, ConfigNode(text=f"{ALLOWED_VLAN} {value}"))
 
 
 def _find_child(target: ConfigNode, text: str) -> ConfigNode | None:
