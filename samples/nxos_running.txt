@@ -1,0 +1,33 @@
+!Command: show running-config
+!Running configuration last done at: Wed Oct 14 10:00:00 2026
+!Time: Wed Oct 14 10:05:00 2026
+
+version 10.3(4a) Bios:version 05.47
+hostname LAB-NX01
+
+feature interface-vlan
+feature lacp
+
+vlan 1,10,20
+vlan 10
+  name USERS
+vlan 20
+  name SERVERS
+
+interface Vlan10
+  description USERS-GW
+  no shutdown
+  ip address 192.0.2.1/24
+
+interface Ethernet1/1
+  description TO-LAB-SW01
+  switchport mode trunk
+  switchport trunk allowed vlan 10,20
+
+interface Ethernet1/2
+  shutdown
+
+router ospf 1
+  router-id 192.0.2.254
+  vrf LAB
+    area 0.0.0.1 nssa
