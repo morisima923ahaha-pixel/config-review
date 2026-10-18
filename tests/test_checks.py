@@ -360,3 +360,13 @@ interface Ethernet1/2
     assert len(result.warnings) == 1
     assert "Ethernet1/1" in result.warnings[0].message
     assert "Ethernet1/2" in result.warnings[0].message
+
+
+def test_feature_disabled_then_enabled_again_is_accepted():
+    # Codex の指摘（3 回目）を確かめたテスト：入れ直したあとは使える
+    current = "feature lacp\ninterface Ethernet1/2\n  switchport"
+    changes = "no feature lacp\nfeature lacp\ninterface Ethernet1/2\n  channel-group 20 mode active"
+
+    result = compare(current, changes)
+
+    assert result.problems == []
