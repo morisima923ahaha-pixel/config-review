@@ -42,3 +42,23 @@ interface Ethernet1/2
         "-  description OLD",
         "+  description NEW",
     ]
+
+
+def test_replaced_line_is_shown_next_to_the_old_line():
+    before = """hostname A
+feature lacp
+interface Ethernet1/1"""
+    after = """hostname B
+feature lacp
+interface Ethernet1/1"""
+
+    assert diff(before, after) == ["-hostname A", "+hostname B"]
+
+
+def test_duplicate_lines_are_counted_separately():
+    # 同じ親の中に同じ行が 2 回ある Config でも、1 つ消えたことがわかる
+    before = """ip route 0.0.0.0/0 192.0.2.1
+ip route 0.0.0.0/0 192.0.2.1"""
+    after = "ip route 0.0.0.0/0 192.0.2.1"
+
+    assert diff(before, after) == ["-ip route 0.0.0.0/0 192.0.2.1"]

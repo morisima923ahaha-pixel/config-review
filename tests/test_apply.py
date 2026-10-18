@@ -44,14 +44,14 @@ interface Ethernet1/3
 
 def test_no_removes_only_the_line_in_the_same_interface():
     current = """interface Ethernet1/1
-  shutdown
+  description A
 interface Ethernet1/2
-  shutdown"""
+  description B"""
     changes = """interface Ethernet1/2
-  no shutdown"""
+  no description"""
 
     assert apply(current, changes) == """interface Ethernet1/1
-  shutdown
+  description A
 interface Ethernet1/2"""
 
 
@@ -204,3 +204,205 @@ def test_current_tree_is_not_modified():
     apply_changes(current, parse_config("hostname LAB-NX02"))
 
     assert to_text(current) == "hostname LAB-NX01"
+
+
+# ---- 弱点2：VLAN の一覧の行（vlan 1,10,20） ----
+
+
+def test_new_vlan_is_added_to_vlan_list():
+    current = """vlan 1,10,20
+vlan 10
+  name USERS"""
+    changes = """vlan 30
+  name GUEST"""
+
+    assert apply(current, changes) == """vlan 1,10,20,30
+vlan 10
+  name USERS
+vlan 30
+  name GUEST"""
+
+
+def test_new_vlan_without_name_only_updates_the_list():
+    # name などの設定がない VLAN は、一覧の行にだけ出る
+    current = "vlan 1,10"
+    changes = "vlan 20-22"
+
+    assert apply(current, changes) == "vlan 1,10,20-22"
+
+
+def test_vlan_block_is_inserted_in_number_order():
+    current = """vlan 1,10,30
+vlan 10
+  name A
+vlan 30
+  name C"""
+    changes = """vlan 20
+  name B"""
+
+    assert apply(current, changes) == """vlan 1,10,20,30
+vlan 10
+  name A
+vlan 20
+  name B
+vlan 30
+  name C"""
+
+
+def test_no_vlan_removes_it_from_list_and_its_block():
+    current = """vlan 1,10,20
+vlan 10
+  name USERS
+vlan 20
+  name SERVERS"""
+    changes = "no vlan 10"
+
+    assert apply(current, changes) == """vlan 1,20
+vlan 20
+  name SERVERS"""
+
+
+def test_existing_vlan_name_is_overwritten():
+    current = """vlan 1,10
+vlan 10
+  name OLD"""
+    changes = """vlan 10
+  name NEW"""
+
+    assert apply(current, changes) == """vlan 1,10
+vlan 10
+  name NEW"""
+
+
+def test_vlan_list_is_created_when_current_has_none():
+    # 一覧の行がない Config は、VLAN 1 だけがある状態とみなす
+    current = "hostname LAB-NX01"
+    changes = "vlan 30"
+
+    assert apply(current, changes) == "hostname LAB-NX01\nvlan 1,30"
+
+
+def test_vlan_configuration_is_not_treated_as_vlan_list():
+    current = "vlan 1,10"
+    changes = """vlan configuration 10
+  ip igmp snooping"""
+
+    assert apply(current, changes) == """vlan 1,10
+vlan configuration 10
+  ip igmp snooping"""
+
+
+# ---- 弱点3：上書きした行は、元の行の場所に入る ----
+
+
+def test_overwritten_line_keeps_its_position():
+    current = """hostname LAB-NX01
+feature lacp"""
+    changes = "hostname LAB-NX02"
+
+    assert apply(current, changes) == """hostname LAB-NX02
+feature lacp"""
+
+
+# ---- 弱点4：ip address secondary ----
+
+
+def test_secondary_address_does_not_overwrite_primary():
+    current = """interface Vlan10
+  ip address 192.0.2.1/24"""
+    changes = """interface Vlan10
+  ip address 198.51.100.1/24 secondary"""
+
+    assert apply(current, changes) == """interface Vlan10
+  ip address 192.0.2.1/24
+  ip address 198.51.100.1/24 secondary"""
+
+
+def test_primary_address_overwrites_only_primary():
+    current = """interface Vlan10
+  ip address 192.0.2.1/24
+  ip address 198.51.100.1/24 secondary"""
+    changes = """interface Vlan10
+  ip address 192.0.2.2/24"""
+
+    assert apply(current, changes) == """interface Vlan10
+  ip address 192.0.2.2/24
+  ip address 198.51.100.1/24 secondary"""
+
+
+def test_no_secondary_removes_only_that_address():
+    current = """interface Vlan10
+  ip address 192.0.2.1/24
+  ip address 198.51.100.1/24 secondary
+  ip address 203.0.113.1/24 secondary"""
+    changes = """interface Vlan10
+  no ip address 198.51.100.1/24 secondary"""
+
+    assert apply(current, changes) == """interface Vlan10
+  ip address 192.0.2.1/24
+  ip address 203.0.113.1/24 secondary"""
+
+
+# ---- 弱点5：no shutdown などの「no の形で表示される行」 ----
+
+
+def test_no_shutdown_on_new_svi_is_shown():
+    current = "hostname LAB-NX01"
+    changes = """interface Vlan30
+  ip address 192.0.2.1/24
+  no shutdown"""
+
+    assert apply(current, changes) == """hostname LAB-NX01
+interface Vlan30
+  ip address 192.0.2.1/24
+  no shutdown"""
+
+
+def test_no_shutdown_replaces_shutdown_in_place():
+    current = """interface Ethernet1/2
+  description A
+  shutdown
+  mtu 9216"""
+    changes = """interface Ethernet1/2
+  no shutdown"""
+
+    assert apply(current, changes) == """interface Ethernet1/2
+  description A
+  no shutdown
+  mtu 9216"""
+
+
+def test_shutdown_replaces_no_shutdown_in_place():
+    current = """interface Vlan10
+  no shutdown
+  ip address 192.0.2.1/24"""
+    changes = """interface Vlan10
+  shutdown"""
+
+    assert apply(current, changes) == """interface Vlan10
+  shutdown
+  ip address 192.0.2.1/24"""
+
+
+def test_no_switchport_removes_switchport_settings():
+    current = """interface Ethernet1/5
+  switchport mode trunk
+  switchport trunk allowed vlan 10
+  mtu 9216"""
+    changes = """interface Ethernet1/5
+  no switchport
+  ip address 192.0.2.1/30"""
+
+    assert apply(current, changes) == """interface Ethernet1/5
+  no switchport
+  mtu 9216
+  ip address 192.0.2.1/30"""
+
+
+def test_no_ip_redirects_is_shown_and_ip_redirects_removes_it():
+    current = "interface Vlan10"
+
+    after_no = apply(current, "interface Vlan10\n  no ip redirects")
+    assert after_no == "interface Vlan10\n  no ip redirects"
+
+    assert apply(after_no, "interface Vlan10\n  ip redirects") == "interface Vlan10"
