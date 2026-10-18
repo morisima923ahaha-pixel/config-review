@@ -1,3 +1,5 @@
+import pytest
+
 from config_review.vlan import ALL_VLANS, calc_allowed_vlans, format_vlan_list, parse_vlan_list
 
 
@@ -34,3 +36,14 @@ def test_calc_all_and_none():
 
 def test_calc_plain_list_overwrites():
     assert calc_allowed_vlans({10, 20}, "30,40") == {30, 40}
+
+
+def test_invalid_vlan_lists_raise_error():
+    for text in ["10,,20", "10-2", "0", "4095", "abc", "1-2-3"]:
+        with pytest.raises(ValueError):
+            parse_vlan_list(text)
+
+
+def test_allowed_vlan_keyword_without_list_raises_error():
+    with pytest.raises(ValueError):
+        calc_allowed_vlans({10}, "add")

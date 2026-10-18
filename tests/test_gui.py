@@ -71,3 +71,14 @@ def test_read_config_file_falls_back_to_shift_jis(tmp_path):
     path.write_bytes("description 本社".encode("cp932"))
 
     assert read_config_file(path) == "description 本社"
+
+
+def test_invalid_input_shows_error_instead_of_crashing(app, monkeypatch):
+    shown = []
+    monkeypatch.setattr("config_review.gui.messagebox.showerror", lambda *args, **kwargs: shown.append(args))
+    app.current.set("vlan 1,10")
+    app.changes.set("vlan 10-2")
+
+    app.run()
+
+    assert shown and "10-2" in shown[0][1]

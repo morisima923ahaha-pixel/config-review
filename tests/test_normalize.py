@@ -123,3 +123,15 @@ def test_non_interface_line_starting_with_in_is_not_changed():
 
 def test_running_config_interface_names_are_normalized():
     assert to_text(parse_running("interface ethernet1/1\n  shutdown")) == "interface Ethernet1/1\n  shutdown"
+
+
+def test_end_closes_the_block_in_flat_config():
+    # end のあとの行が、直前の interface の中に入らない
+    text = """interface Ethernet1/1
+description NEW
+end
+ip prefix-list PL seq 5 permit 192.0.2.0/24"""
+
+    assert changes(text) == """interface Ethernet1/1
+  description NEW
+ip prefix-list PL seq 5 permit 192.0.2.0/24"""

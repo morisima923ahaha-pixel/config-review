@@ -5,14 +5,20 @@ ALL_VLANS = frozenset(range(1, 4095))
 
 
 def parse_vlan_list(text: str) -> set[int]:
-    """"10,20-22" を {10, 20, 21, 22} にする。"""
+    """"10,20-22" を {10, 20, 21, 22} にする。
+
+    「10,,20」「10-2」「4095」のような読めない一覧は、黙って無視すると
+    まちがった想定 Config を出してしまうので、ValueError で止める。
+    """
     vlans: set[int] = set()
     for part in text.split(","):
-        if "-" in part:
-            start, end = part.split("-")
-            vlans.update(range(int(start), int(end) + 1))
-        else:
-            vlans.add(int(part))
+        numbers = part.split("-")
+        if len(numbers) > 2 or not all(n.isdigit() for n in numbers):
+            raise ValueError(f"VLAN の一覧として読めません：「{text}」")
+        start, end = int(numbers[0]), int(numbers[-1])
+        if not 1 <= start <= end <= max(ALL_VLANS):
+            raise ValueError(f"VLAN の番号の範囲がおかしいです：「{part}」（1〜4094、小さい番号から）")
+        vlans.update(range(start, end + 1))
     return vlans
 
 
@@ -43,6 +49,8 @@ def calc_allowed_vlans(current: set[int], value: str) -> set[int]:
       "all" / "none"→ 全部 / なし
     """
     words = value.split()
+    if not words or (words[0] in ("add", "remove", "except") and len(words) != 2):
+        raise ValueError(f"allowed vlan の書き方が読めません：「{value}」")
     keyword = words[0]
 
     if keyword == "all":

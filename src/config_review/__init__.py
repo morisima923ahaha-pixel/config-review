@@ -11,10 +11,14 @@ def main() -> None:
         print("画面で使うとき: config-review-gui")
         sys.exit(1)
 
-    result = compare(
-        read_config_file(Path(sys.argv[1])),
-        read_config_file(Path(sys.argv[2])),
-    )
+    try:
+        result = compare(
+            read_config_file(Path(sys.argv[1])),
+            read_config_file(Path(sys.argv[2])),
+        )
+    except (OSError, ValueError) as error:  # ファイルがない、「vlan 10-2」のような読めない書き方 など
+        print(f"比較できませんでした：{error}")
+        sys.exit(1)
 
     if result.diff:
         print("\n".join(result.diff))

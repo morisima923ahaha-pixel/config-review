@@ -69,6 +69,11 @@ def parse_changes(text: str) -> tuple[ConfigNode, list[str]]:
         stripped = raw.strip()
         if stripped == "" or stripped.startswith("!"):
             continue
+        if stripped.lower() == "end":
+            # end は設定モードを抜けるので、exit と同じく「ブロックの終わり」として扱う
+            _note(notes, "「end」は設定ではないので、ブロックの終わり（exit と同じ）として扱いました")
+            lines.append("exit")
+            continue
         if _is_not_config(stripped):
             _note(notes, f"「{stripped}」は設定ではないので読み飛ばしました")
             continue
@@ -78,7 +83,7 @@ def parse_changes(text: str) -> tuple[ConfigNode, list[str]]:
     if any(line.startswith(" ") for line in lines):
         # インデントがあるときは、インデントで親子がわかるので exit はいらない
         kept = [line for line in lines if line.strip() != "exit"]
-        if len(kept) != len(lines):
+        if any(line.strip() == "exit" for line in text.splitlines()):
             _note(notes, "インデントがあるので、「exit」の行は読み飛ばしました")
         root = parse_config("\n".join(kept))
     else:
@@ -218,7 +223,7 @@ def _is_not_config(line: str) -> bool:
     first = words[0]
     if len(first) >= 4 and "configure".startswith(first):
         return len(words) == 1 or "terminal".startswith(words[1])
-    return line.lower() == "end" or first in ("copy", "write", "show")
+    return first in ("copy", "write", "show")
 
 
 def _note(notes: list[str], message: str) -> None:

@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from config_review.compare import compare
 
 SAMPLES = Path(__file__).parent.parent / "samples"
@@ -54,3 +56,8 @@ def test_no_change_gives_empty_diff():
 
     assert result.diff == []
     assert result.expected == "hostname A"
+
+
+def test_invalid_vlan_in_changes_raises_value_error():
+    with pytest.raises(ValueError, match="10-2"):
+        compare("vlan 1,10", "vlan 10-2")

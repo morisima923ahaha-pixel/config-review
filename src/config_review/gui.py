@@ -66,8 +66,12 @@ class ConfigInput(ttk.Frame):
             parent=self,
             filetypes=[("テキストファイル", "*.txt *.log *.cfg *.conf"), ("すべてのファイル", "*.*")],
         )
-        if path:
+        if not path:
+            return
+        try:
             self.set(read_config_file(Path(path)))
+        except OSError as error:
+            messagebox.showerror(TITLE, f"ファイルを開けませんでした。\n\n{error}", parent=self)
 
 
 class App(ttk.Frame):
@@ -132,7 +136,10 @@ class App(ttk.Frame):
     def run(self) -> None:
         try:
             self.result = compare(self.current.get(), self.changes.get())
-        except Exception as error:  # 想定外の書き方でも、画面が落ちないようにする
+        except ValueError as error:  # 「vlan 10-2」のような、読めない書き方があった
+            messagebox.showerror(TITLE, f"比較できませんでした。\n\n{error}", parent=self)
+            return
+        except Exception as error:  # 想定外のエラーでも、画面が落ちないようにする
             messagebox.showerror(TITLE, f"比較できませんでした。\n\n{type(error).__name__}: {error}", parent=self)
             return
 
@@ -172,16 +179,25 @@ class App(ttk.Frame):
         path = filedialog.asksaveasfilename(
             parent=self, defaultextension=".txt", filetypes=[("テキストファイル", "*.txt")]
         )
-        if path:
+        if not path:
+            return
+        try:
             Path(path).write_text(text + "\n", encoding="utf-8")
-            self.status.configure(text=f"保存しました：{path}")
+        except OSError as error:
+            messagebox.showerror(TITLE, f"保存できませんでした。\n\n{error}", parent=self)
+            return
+        self.status.configure(text=f"保存しました：{path}")
 
     def load_samples(self) -> None:
         if not SAMPLES.is_dir():
             messagebox.showinfo(TITLE, f"サンプルのフォルダが見つかりません：{SAMPLES}", parent=self)
             return
-        self.current.set(read_config_file(SAMPLES / "nxos_running.txt"))
-        self.changes.set(read_config_file(SAMPLES / "nxos_change.txt"))
+        try:
+            self.current.set(read_config_file(SAMPLES / "nxos_running.txt"))
+            self.changes.set(read_config_file(SAMPLES / "nxos_change.txt"))
+        except OSError as error:
+            messagebox.showerror(TITLE, f"サンプルを開けませんでした。\n\n{error}", parent=self)
+            return
         self.run()
 
 
