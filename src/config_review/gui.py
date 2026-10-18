@@ -116,6 +116,8 @@ class App(ttk.Frame):
         self.diff_view = self._add_tab("差分")
         self.expected_view = self._add_tab("投入後の想定 Config")
         self.notes_view = self._add_tab("メモ")
+        # タブの並び順と同じ順の一覧。選んでいるタブの番号から、文字の欄を取り出すのに使う
+        self.result_views = [self.diff_view, self.expected_view, self.notes_view]
         for tag, options in COLORS.items():
             self.diff_view.tag_configure(tag, **options)
 
@@ -183,7 +185,9 @@ class App(ttk.Frame):
         """いま選んでいるタブの内容（コピー・保存用）。"""
         if self.result is None:
             return ""
-        view = self.tabs.nametowidget(self.tabs.select())
+        # ScrolledText は「文字の欄＋スクロールバー」を枠（Frame）で包んだ部品で、
+        # self.tabs.select() が返すのは外側の枠のほう。枠からは文字を取り出せないので、タブの番号で選ぶ
+        view = self.result_views[self.tabs.index("current")]
         return view.get("1.0", "end-1c")
 
     def copy_result(self) -> None:

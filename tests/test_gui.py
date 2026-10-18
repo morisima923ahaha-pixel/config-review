@@ -96,3 +96,39 @@ def test_rejected_lines_are_shown_above_diff(app):
     assert lines[-1] == "+  description UPLINK"
     assert app.diff_view.tag_ranges("error")
     assert "エラーになるはずの行：1" in app.status.cget("text")
+
+
+@pytest.mark.parametrize("tab", [0, 1, 2])
+def test_save_writes_selected_tab(app, monkeypatch, tmp_path, tab):
+    path = tmp_path / "result.txt"
+    monkeypatch.setattr("config_review.gui.filedialog.asksaveasfilename", lambda **kwargs: str(path))
+    app.load_samples()
+    app.tabs.select(tab)
+    view = [app.diff_view, app.expected_view, app.notes_view][tab]
+
+    app.save_result()
+
+    assert path.read_text(encoding="utf-8") == view.get("1.0", "end-1c") + "\n"
+    assert str(path) in app.status.cget("text")
+
+
+def test_save_cancel_writes_nothing(app, monkeypatch, tmp_path):
+    # 保存の画面で「キャンセル」を押すと、ファイル名は空文字で返ってくる
+    monkeypatch.setattr("config_review.gui.filedialog.asksaveasfilename", lambda **kwargs: "")
+    app.load_samples()
+
+    app.save_result()
+
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize("tab", [0, 1, 2])
+def test_copy_puts_selected_tab_on_clipboard(app, tab):
+    app.load_samples()
+    app.tabs.select(tab)
+    view = [app.diff_view, app.expected_view, app.notes_view][tab]
+
+    app.copy_result()
+
+    assert app.clipboard_get() == view.get("1.0", "end-1c")
+    assert "コピーしました" in app.status.cget("text")
