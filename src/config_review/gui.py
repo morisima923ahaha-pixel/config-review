@@ -22,9 +22,9 @@ COLORS = {
     "removed": {"background": "#ffebe9", "foreground": "#82071e"},
     "added": {"background": "#dafbe1", "foreground": "#116329"},
     "context": {"foreground": "#57606a"},
-    # 実機ではエラーになるはずの行・確認してほしい行（差分より上に、目立つ色で出す）
-    "error": {"background": "#cf222e", "foreground": "#ffffff", "font": ("Consolas", 10, "bold")},
-    "warning": {"background": "#fff8c5", "foreground": "#7d4e00"},
+    # 実機ではエラーになるはずの行・確認してほしい行（差分より上に、目立つ色で出す。文章が長いので折り返す）
+    "error": {"background": "#cf222e", "foreground": "#ffffff", "font": ("Consolas", 10, "bold"), "wrap": "char"},
+    "warning": {"background": "#fff8c5", "foreground": "#7d4e00", "wrap": "char"},
 }
 ALERT_COLOR = "#cf222e"
 
