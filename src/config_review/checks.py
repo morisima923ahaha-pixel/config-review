@@ -66,8 +66,9 @@ TOP_LEVEL_FEATURES = (
     (re.compile(r"router eigrp \S+"), "eigrp"),
     (re.compile(r"vpc domain \d+"), "vpc"),
 )
+LACP_CHANNEL_GROUP = re.compile(r"channel-group \d+ mode (active|passive)")
 INTERFACE_FEATURES = (
-    (re.compile(r"channel-group \d+ mode (active|passive)"), "lacp"),
+    (LACP_CHANNEL_GROUP, "lacp"),
     (re.compile(r"ip router ospf .*"), "ospf"),
     (re.compile(r"ip ospf .*"), "ospf"),
     (re.compile(r"ipv6 router ospfv3 .*"), "ospfv3"),
@@ -77,6 +78,20 @@ INTERFACE_FEATURES = (
     (re.compile(r"vrrp .*"), "vrrp"),
     (re.compile(r"ip dhcp relay .*"), "dhcp"),
     (re.compile(r"vpc( \d+| peer-link)"), "vpc"),
+)
+
+# 実機で出たエラーの文章（2026-10-19 に NX-OS 10.4(2) で確認）。画面に出す理由に添える。
+# 確かめていない場面には添えない（機種やバージョンで文章が違うかもしれないので）
+SYNTAX_ERROR = "Syntax error while parsing '{line}'"
+LACP_NOT_ENABLED_ERROR = "LACP process needs to be started before configuring active or passive mode"
+LACP_IN_USE_ERROR = "LACP disable failed since some port-channels exist in active or passive mode"
+PRIMARY_IN_USE_ERROR = "Must delete secondary address before deleting primary address"
+# feature が無効なときのエラーの文章。確かめた行の形だけ
+# （同じ feature ospf でも「router ospf 1」「ip ospf cost」は確かめていないので添えない）
+FEATURE_ERRORS = (
+    (re.compile(r"interface Vlan\d+"), SYNTAX_ERROR),
+    (re.compile(r"ip router ospf .*"), SYNTAX_ERROR),
+    (LACP_CHANNEL_GROUP, LACP_NOT_ENABLED_ERROR),
 )
 
 # VLAN を使う interface の設定。作られていない VLAN を指定すると、入るが通信できない。
@@ -167,6 +182,19 @@ def _feature_in_use(root: ConfigNode, feature: str) -> bool:
     return False
 
 
+def _is_secondary_address(text: str) -> bool:
+    return text.startswith("ip address ") and "secondary" in text.split()
+
+
+def _lacp_users(root: ConfigNode) -> list[str]:
+    """LACP を使う channel-group（mode active / passive）がある interface の一覧。"""
+    return [
+        interface.text
+        for interface in root.children
+        if any(LACP_CHANNEL_GROUP.fullmatch(c.text) for c in interface.children)
+    ]
+
+
 def vlan_summary(root: ConfigNode) -> ConfigNode | None:
     """VLAN の一覧の行（子の行を持たない「vlan 1,10,20」の行）。なければ None。"""
     return next(
@@ -210,10 +238,12 @@ class Checker:
         if feature not in self._disabled_features and _feature_in_use(root, feature):
             return False
         if self.features_known:
+            error = next((e for p, e in FEATURE_ERRORS if p.fullmatch(line)), None)
             self.problems.append(Problem(
                 where, line,
                 f"「feature {feature}」が有効になっていないので、このコマンドは使えません。"
-                f"先に「feature {feature}」を投入する必要があります。想定 Config には入れていません。",
+                f"先に「feature {feature}」を投入する必要があります。想定 Config には入れていません。"
+                + (f"（実機の表示：{error.format(line=line)}）" if error else ""),
                 rejected=True,
             ))
             return True
@@ -230,6 +260,15 @@ class Checker:
 
     def check_top_level(self, root: ConfigNode, change: ConfigNode) -> bool:
         """interface Vlan10・router ospf 1 のような最上位の行を確かめる。入らないなら False。"""
+        if change.text == "no feature lacp" and (users := _lacp_users(root)):
+            self.problems.append(Problem(
+                change.text, change.text,
+                f"LACP を使う channel-group（{'、'.join(users)}）が残っているので、無効にできません。"
+                "先に channel-group を消す必要があります。想定 Config には入れていません。"
+                f"（実機の表示：{LACP_IN_USE_ERROR}）",
+                rejected=True,
+            ))
+            return False
         if change.text.startswith("no feature "):
             # 無効にしたあとは、その feature を使う設定が残っていても「有効」とはみなさない
             self._disabled_features.add(change.text.removeprefix("no feature "))
@@ -300,6 +339,8 @@ class Checker:
         mode = interface_mode(root, interface) if checks_mode else None
         unknown_kinds: set[str] = set()
         unknown_lines: list[str] = []
+        # secondary の ip address が残っていると、primary は消せない
+        secondaries = {c.text for c in interface.children if _is_secondary_address(c.text)}
 
         for child in change.children:
             text = child.text
@@ -307,6 +348,24 @@ class Checker:
                 p.fullmatch(text) and self._feature_missing(root, f, interface.text, text)
                 for p, f in INTERFACE_FEATURES
             ):
+                continue
+            if (text == "switchport" and switchable) or (
+                _matches(text.removeprefix("no "), "vrf member")
+                and text not in {c.text for c in interface.children}
+            ):
+                secondaries.clear()  # L2 への切り替え・VRF の変更で、ip address は全部消える
+            elif _is_secondary_address(text):
+                secondaries.add(text)
+            elif _is_secondary_address(text.removeprefix("no ")):
+                secondaries.discard(text.removeprefix("no "))
+            elif text.startswith("no ip address ") and secondaries:
+                self.problems.append(Problem(
+                    interface.text, text,
+                    f"secondary の ip address（{' / '.join(sorted(secondaries))}）が残っているので、"
+                    "primary は消せません。先に secondary を消す必要があります。想定 Config には入れていません。"
+                    f"（実機の表示：{PRIMARY_IN_USE_ERROR}）",
+                    rejected=True,
+                ))
                 continue
             if m := VLAN_USERS.fullmatch(text):
                 self._check_vlan_exists(root, interface.text, text, int(m.group(2)))
@@ -350,7 +409,9 @@ class Checker:
                 how = "この interface は L3 だけで、L2（switchport）の設定は入れられません。"
             self.problems.append(Problem(
                 interface.text, text,
-                f"今は {mode} のポートなので、{kind} の設定は入れられません。{how}想定 Config には入れていません。",
+                f"今は {mode} のポートなので、{kind} の設定は入れられません。{how}想定 Config には入れていません。"
+                # 実機で確かめたのは Ethernet だけ
+                + (f"（実機の表示：{SYNTAX_ERROR.format(line=text)}）" if switchable else ""),
                 rejected=True,
             ))
 

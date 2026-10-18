@@ -432,7 +432,160 @@ interface Ethernet1/1
 interface Ethernet1/1
   channel-group 20 mode active"""
 
+    # channel-group を入れると、その番号の port-channel ができる
     assert apply(current, changes) == """interface Vlan10
   vrf member B
+interface port-channel20
 interface Ethernet1/1
   channel-group 20 mode active"""
+
+
+# ここから下の port-channel・上書き・no の形・mtu のテストは、2026-10-19 に NX-OS 10.4(2) の実機で確かめた結果に合わせている
+def test_channel_group_mode_on_is_shown_without_mode():
+    changes = "interface Ethernet1/1\n  channel-group 10 mode on"
+
+    assert apply("interface Ethernet1/1", changes) == """interface port-channel10
+interface Ethernet1/1
+  channel-group 10"""
+
+
+def test_existing_port_channel_is_not_added_again():
+    current = "interface port-channel10\n  description UPLINK\ninterface Ethernet1/1"
+    changes = "interface Ethernet1/1\n  channel-group 10 mode active"
+
+    assert apply(current, changes) == """interface port-channel10
+  description UPLINK
+interface Ethernet1/1
+  channel-group 10 mode active"""
+
+
+def test_existing_channel_group_does_not_add_port_channel():
+    # 一部だけ貼った現行 Config では、port-channel のブロックを貼っていないだけかもしれない
+    current = "interface Ethernet1/1\n  channel-group 10 mode active"
+
+    assert apply(current, "interface Ethernet1/1\n  description A") == current + "\n  description A"
+
+
+def test_load_interval_and_spanning_tree_cost_are_overwritten():
+    current = """interface Ethernet1/1
+  spanning-tree cost 100
+  load-interval counter 1 60
+  load-interval counter 2 120"""
+    changes = """interface Ethernet1/1
+  spanning-tree cost 200
+  load-interval counter 1 90"""
+
+    # counter 2 は別の値なので残る
+    assert apply(current, changes) == """interface Ethernet1/1
+  spanning-tree cost 200
+  load-interval counter 1 90
+  load-interval counter 2 120"""
+
+
+def test_no_cdp_enable_is_shown_and_cdp_enable_removes_it():
+    assert apply("interface Ethernet1/1", "interface Ethernet1/1\n  no cdp enable") == """interface Ethernet1/1
+  no cdp enable"""
+    assert apply("interface Ethernet1/1\n  no cdp enable", "interface Ethernet1/1\n  cdp enable") == "interface Ethernet1/1"
+
+
+def test_switchport_from_l3_removes_mtu():
+    current = """interface Ethernet1/1
+  no switchport
+  mtu 9216
+  ip address 192.0.2.1/30"""
+
+    assert apply(current, "interface Ethernet1/1\n  switchport") == """interface Ethernet1/1
+  switchport"""
+
+
+def test_switchport_on_l2_keeps_mtu():
+    current = """interface Ethernet1/1
+  switchport mode trunk
+  mtu 9216"""
+
+    assert apply(current, "interface Ethernet1/1\n  switchport") == """interface Ethernet1/1
+  switchport mode trunk
+  mtu 9216
+  switchport"""
+
+
+# vrf member の動きは、2026-10-19 に NX-OS 10.4(2) の実機で確かめた結果に合わせている
+def test_changing_vrf_deletes_l3_config():
+    current = """interface Vlan10
+  description USERS
+  vrf member A
+  ip address 192.0.2.1/24
+  ip address 198.51.100.1/24 secondary
+  no ip redirects
+  ip router ospf 1 area 0.0.0.0
+  no shutdown"""
+    changes = """interface Vlan10
+  vrf member B"""
+
+    # L3 の設定は消えるが、description や shutdown は残る
+    assert apply(current, changes) == """interface Vlan10
+  description USERS
+  vrf member B
+  no shutdown"""
+
+
+def test_joining_vrf_from_default_deletes_l3_config():
+    current = """interface Vlan10
+  ip address 192.0.2.1/24
+  no shutdown"""
+    changes = """interface Vlan10
+  vrf member B"""
+
+    # vrf member の行は、消えた ip address の場所に入る
+    assert apply(current, changes) == """interface Vlan10
+  vrf member B
+  no shutdown"""
+
+
+def test_same_vrf_again_keeps_l3_config():
+    current = """interface Vlan10
+  vrf member A
+  ip address 192.0.2.1/24"""
+    changes = """interface Vlan10
+  vrf member A"""
+
+    assert apply(current, changes) == current
+
+
+def test_no_vrf_member_deletes_l3_config():
+    current = """interface Vlan10
+  vrf member A
+  ip address 192.0.2.1/24
+  no shutdown"""
+    changes = """interface Vlan10
+  no vrf member A"""
+
+    assert apply(current, changes) == """interface Vlan10
+  no shutdown"""
+
+
+def test_ip_address_after_vrf_change_is_kept():
+    # ふだんの手順：VRF を変えてから ip address を入れ直す
+    current = """interface Vlan10
+  vrf member A
+  ip address 192.0.2.1/24"""
+    changes = """interface Vlan10
+  vrf member B
+  ip address 192.0.2.1/24"""
+
+    assert apply(current, changes) == """interface Vlan10
+  vrf member B
+  ip address 192.0.2.1/24"""
+
+
+def test_ip_address_before_vrf_change_is_deleted():
+    # 順番が逆だと、入れた ip address も VRF の変更で消える
+    current = """interface Vlan10
+  vrf member A
+  ip address 192.0.2.1/24"""
+    changes = """interface Vlan10
+  ip address 192.0.2.2/24
+  vrf member B"""
+
+    assert apply(current, changes) == """interface Vlan10
+  vrf member B"""

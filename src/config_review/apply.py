@@ -22,11 +22,16 @@ OVERWRITE_COMMANDS = (
     "mtu",
     "speed",
     "duplex",
-    "vrf member",
     "channel-group",
     "bandwidth",
     "spanning-tree port type",
+    "spanning-tree cost",
+    # load-interval は counter 1〜3 の 3 つを別々に持てるので、番号ごとに上書きする
+    "load-interval counter 1",
+    "load-interval counter 2",
+    "load-interval counter 3",
 )
+# OVERWRITE_COMMANDS のうち spanning-tree cost・load-interval は、2026-10-19 に NX-OS 10.4(2) の実機で確認
 
 # 「no 〇〇」の形のまま show run に表示されるコマンド。
 # 値は「肯定の形（〇〇）も show run に表示されるか」。
@@ -37,10 +42,19 @@ SHOWN_NO_FORMS = {
     "switchport": True,
     "ip redirects": False,
     "ipv6 redirects": False,
+    "cdp enable": False,
 }
+
+# 「channel-group 10 mode on」は、show run では「channel-group 10」と表示される（mode on が既定のため）
+CHANNEL_GROUP_ON = re.compile(r"(channel-group \d+) mode on")
+# channel-group を入れると、その番号の port-channel の interface が自動でできる
+CHANNEL_GROUP = re.compile(r"channel-group (\d+)( mode \S+)?")
 
 # トランクで通す VLAN の一覧。add・remove があるので、単純な上書きではなく計算して 1 行にまとめる。
 ALLOWED_VLAN = "switchport trunk allowed vlan"
+
+# interface の VRF を決める行。VRF が変わると、その interface の L3 の設定はすべて消える。
+VRF_MEMBER = "vrf member"
 
 # 最上位の「vlan 10」「vlan 1,10,20」のような行（VLAN を作る行と、作った VLAN の一覧の行）。
 # 「vlan configuration 10」「vlan access-map」などは別のコマンドなので当てはまらない。
@@ -69,6 +83,8 @@ def _merge(target: ConfigNode, changes: ConfigNode, checker: Checker | None = No
     top_level = checker is not None
     for change in changes.children:
         text = change.text
+        if m := CHANNEL_GROUP_ON.fullmatch(text):
+            text = m.group(1)
 
         if top_level and not checker.check_top_level(target, change):
             continue  # 「feature interface-vlan」がないのに「interface Vlan10」など、入らないブロック
@@ -77,6 +93,10 @@ def _merge(target: ConfigNode, changes: ConfigNode, checker: Checker | None = No
             if text.startswith("no "):
                 checker.check_vlan_removal(target, text, _vlan_numbers(text.removeprefix("no ")))
             _apply_vlan(target, change)
+            continue
+
+        if _matches(text.removeprefix("no "), VRF_MEMBER):
+            _apply_vrf_member(target, text)
             continue
 
         if text.startswith("no "):
@@ -88,8 +108,14 @@ def _merge(target: ConfigNode, changes: ConfigNode, checker: Checker | None = No
             continue
 
         if text == "switchport":
-            # L2 に切り替えると、ip address などの L3 の設定は消える
-            target.children = [c for c in target.children if command_kind(c.text) != L3]
+            # L2 に切り替えると、ip address などの L3 の設定は消える。
+            # L3 から切り替えたときは mtu も消える（2026-10-19 に NX-OS 10.4(2) の実機で確認）
+            was_l3 = any(c.text == "no switchport" or command_kind(c.text) == L3 for c in target.children)
+            target.children = [
+                c
+                for c in target.children
+                if command_kind(c.text) != L3 and not (was_l3 and _matches(c.text, "mtu"))
+            ]
 
         if text in SHOWN_NO_FORMS and not SHOWN_NO_FORMS[text]:
             # 既定の状態に戻すだけなので、行は増えない（「no ip redirects」が消えるだけ）
@@ -122,6 +148,27 @@ def _merge(target: ConfigNode, changes: ConfigNode, checker: Checker | None = No
         # interface の下の行のように、子があれば同じルールで反映する。
         _merge(existing, change)
 
+        if top_level and text.startswith("interface "):
+            _add_port_channels(target, existing, change)
+
+
+def _add_port_channels(root: ConfigNode, interface: ConfigNode, change: ConfigNode) -> None:
+    """投入した channel-group の番号の port-channel が Config になければ、interface の前に作る。
+
+    NX-OS では channel-group を入れると「interface port-channel〇〇」が自動でできる
+    （2026-10-19 に NX-OS 10.4(2) の実機で確認。mode on・active のどちらでもできた）。
+    現行 Config にもとからある channel-group は見ない（一部だけ貼り付けた Config で、port-channel を貼っていないだけかもしれないので）。
+    show run での並び順は確かめていないので、channel-group を入れた interface のすぐ前に置く。
+    """
+    applied = {c.text for c in interface.children}
+    for child in change.children:
+        m = CHANNEL_GROUP.fullmatch(child.text)
+        if m is None or CHANNEL_GROUP_ON.sub(r"\1", child.text) not in applied:
+            continue  # エラーで入らなかった channel-group は数えない
+        name = f"interface port-channel{m.group(1)}"
+        if _find_child(root, name) is None:
+            root.children.insert(root.children.index(interface), ConfigNode(text=name))
+
 
 def _apply_no(target: ConfigNode, command: str) -> None:
     """「no 〇〇」を反映する。"""
@@ -132,6 +179,26 @@ def _apply_no(target: ConfigNode, command: str) -> None:
         _replace(target, lambda t: _matches(t, command) or t == no_line.text, no_line)
         return
     _remove_matching(target, command)
+
+
+def _apply_vrf_member(target: ConfigNode, text: str) -> None:
+    """「vrf member 〇〇」「no vrf member 〇〇」を反映する。
+
+    NX-OS では、interface の VRF が変わると ip address などの L3 の設定がすべて消える。
+    VRF なし → VRF あり、VRF A → VRF B、no vrf member のどれでも消え、
+    「Warning: Deleted all L3 config on interface 〇〇」と表示される。
+    同じ VRF を入れ直したときは何も消えない。
+    （2026-10-19 に NX-OS 10.4(2) の実機（loopback）で確認）
+    """
+    current = next((c.text for c in target.children if _matches(c.text, VRF_MEMBER)), None)
+    if text == current:
+        return  # 同じ VRF の入れ直し
+    if text.startswith("no "):
+        if current is not None:
+            target.children = [c for c in target.children if command_kind(c.text) != L3]
+        return
+    # 消した L3 の設定の先頭の場所に、新しい vrf member の行を入れる（show run でも ip address より前に出る）
+    _replace(target, lambda t: command_kind(t) == L3, ConfigNode(text=text))
 
 
 def _replace(target: ConfigNode, should_remove: Callable[[str], bool], node: ConfigNode) -> None:

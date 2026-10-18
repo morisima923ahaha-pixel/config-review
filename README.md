@@ -4,7 +4,8 @@ Cisco NX-OS の **現行の running-config** と **これから投入する Conf
 **投入後の想定 Config** を作り、**何が変わるか（差分）** を表示するツールです。
 Config 投入前のダブルチェック（再鑑）の手助けを目的にしています。
 
-> ⚠️ 本物の機器で動かした結果ではなく、NX-OS の動きをもとにした「予想」です。
+> ⚠️ ツールが出すのは、NX-OS の動きをもとにした「予想」です。
+> 主な動きは Cisco DevNet Sandbox の Nexus 9000v（NX-OS 10.4(2)）で確かめていますが、機種やバージョンで違うことがあります。
 > 最終的な判断は、必ず人が行ってください。
 
 ## できること
@@ -13,7 +14,11 @@ Config 投入前のダブルチェック（再鑑）の手助けを目的にし�
   - `switchport trunk allowed vlan add / remove` を計算して 1 行にまとめる
   - `vlan 30` を作ると、先頭の `vlan 1,10,20` の一覧の行も更新する
   - `ip address ... secondary` は primary を上書きしない
-  - `no shutdown`・`no switchport`・`no ip redirects` は `no` の形のまま残す
+  - `no shutdown`・`no switchport`・`no ip redirects`・`no cdp enable` は `no` の形のまま残す
+  - `vrf member` で VRF が変わると、その interface の `ip address` などの L3 の設定を消す
+  - `channel-group` を入れると、その番号の `interface port-channel` を作る
+- 実機ではエラーになって入らないはずの投入を見つけて、赤い【エラー】で知らせる（想定 Config には入れない）
+  - L2 のポートに `ip address`、feature を有効にしていない `interface Vlan10`、secondary が残ったままの primary の削除など
 - 投入 Config の書き方のゆれをそろえる
   - `conf t`・`end`・`copy run start` などの行を読み飛ばす
   - インデントのない形（`exit` 入り）も読める
@@ -61,6 +66,7 @@ uv run pytest -q
 | `src/config_review/parser.py` | Config をインデントから親子のツリーにする |
 | `src/config_review/normalize.py` | 投入 Config の書き方のゆれをそろえる |
 | `src/config_review/apply.py` | 投入 Config を反映して、想定 Config を作る |
+| `src/config_review/checks.py` | 実機ではエラーになるはずの投入を見つける |
 | `src/config_review/vlan.py` | VLAN の一覧（`10,20-22`）の計算 |
 | `src/config_review/diff.py` | 現行と想定の差分を作る |
 | `src/config_review/compare.py` | 上の流れをまとめた入り口（CLI と GUI が使う） |

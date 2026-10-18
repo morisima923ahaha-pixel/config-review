@@ -332,12 +332,154 @@ def test_switchport_warns_about_ip_lines_it_keeps():
 
 
 def test_feature_disabled_in_changes_is_not_revived_by_existing_use():
+    # 先に channel-group を消してから無効にしたので、no feature lacp は入る。そのあとの active はエラー
     current = "feature lacp\ninterface Ethernet1/1\n  switchport\n  channel-group 10 mode active"
-    changes = "no feature lacp\ninterface Ethernet1/2\n  channel-group 20 mode active"
+    changes = """interface Ethernet1/1
+  no channel-group 10
+no feature lacp
+interface Ethernet1/2
+  channel-group 20 mode active"""
 
     result = compare(current, changes)
 
     assert [p.line for p in result.errors] == ["channel-group 20 mode active"]
+
+
+def test_no_feature_lacp_fails_while_lacp_is_used():
+    # 2026-10-19 に実機で確認：active の channel-group が残っていると、no feature lacp はエラーになる
+    current = "feature lacp\ninterface Ethernet1/1\n  switchport\n  channel-group 10 mode active"
+
+    result = compare(current, "no feature lacp")
+
+    assert [p.line for p in result.errors] == ["no feature lacp"]
+    assert "LACP disable failed" in result.errors[0].message
+    assert result.expected == current  # feature lacp も channel-group も残る
+
+
+def test_no_feature_lacp_is_accepted_with_mode_on():
+    # mode on は LACP を使わないので、無効にできる
+    current = "feature lacp\ninterface Ethernet1/1\n  channel-group 10"
+
+    result = compare(current, "no feature lacp")
+
+    assert result.problems == []
+    assert result.expected == "interface Ethernet1/1\n  channel-group 10"
+
+
+def test_primary_address_cannot_be_removed_before_secondary():
+    # 2026-10-19 に実機で確認：「Must delete secondary address before deleting primary address」
+    current = """interface loopback1
+  ip address 192.0.2.1/24
+  ip address 198.51.100.1/24 secondary"""
+
+    result = compare(current, "interface loopback1\n  no ip address 192.0.2.1/24")
+
+    assert [p.line for p in result.errors] == ["no ip address 192.0.2.1/24"]
+    assert "Must delete secondary address" in result.errors[0].message
+    assert result.expected == current
+
+
+def test_primary_address_can_be_removed_after_secondary():
+    current = """interface loopback1
+  ip address 192.0.2.1/24
+  ip address 198.51.100.1/24 secondary"""
+    changes = """interface loopback1
+  no ip address 198.51.100.1/24 secondary
+  no ip address 192.0.2.1/24"""
+
+    result = compare(current, changes)
+
+    assert result.problems == []
+    assert result.expected == "interface loopback1"
+
+
+def test_primary_address_can_be_removed_after_vrf_change():
+    # VRF を変えると secondary も消えるので、そのあとの no ip address はエラーにしない
+    current = """interface loopback1
+  vrf member A
+  ip address 192.0.2.1/24
+  ip address 198.51.100.1/24 secondary"""
+    changes = """interface loopback1
+  vrf member B
+  no ip address 192.0.2.1/24"""
+
+    result = compare(current, changes)
+
+    assert result.errors == []
+    assert result.expected == "interface loopback1\n  vrf member B"
+
+
+def test_rejected_switchport_on_loopback_keeps_secondary_check():
+    # loopback に switchport は入らないので、secondary は残ったまま。primary は消せない
+    current = """interface loopback1
+  ip address 192.0.2.1/24
+  ip address 198.51.100.1/24 secondary"""
+    changes = """interface loopback1
+  switchport
+  no ip address 192.0.2.1/24"""
+
+    result = compare(current, changes)
+
+    assert [p.line for p in result.errors] == ["switchport", "no ip address 192.0.2.1/24"]
+
+
+def test_rejected_l2_l3_line_shows_device_error():
+    result = compare("interface Ethernet1/1\n  switchport mode trunk", "interface Ethernet1/1\n  ip address 192.0.2.1/30")
+
+    assert "Syntax error while parsing 'ip address 192.0.2.1/30'" in result.errors[0].message
+
+
+def test_missing_feature_shows_device_error_only_when_checked():
+    result = compare(
+        "feature ospf",
+        "interface Ethernet1/1\n  channel-group 10 mode active\ninterface Vlan10\n  no shutdown\nrouter bgp 65000",
+    )
+
+    messages = {p.line: p.message for p in result.errors}
+    assert "LACP process needs to be started" in messages["channel-group 10 mode active"]
+    assert "Syntax error while parsing 'interface Vlan10'" in messages["interface Vlan10"]
+    assert "実機の表示" not in messages["router bgp 65000"]  # bgp は実機で確かめていない
+
+
+def test_device_error_is_not_shown_for_unchecked_line_of_checked_feature():
+    # Codex の指摘：feature ospf でも、実機で確かめたのは「ip router ospf」だけ
+    result = compare(
+        "feature lacp",
+        "router ospf 1\ninterface Ethernet1/1\n  no switchport\n  ip router ospf 1 area 0.0.0.0\n  ip ospf cost 10",
+    )
+
+    messages = {p.line: p.message for p in result.errors}
+    assert "実機の表示" not in messages["router ospf 1"]
+    assert "実機の表示" not in messages["ip ospf cost 10"]
+    assert "Syntax error while parsing 'ip router ospf 1 area 0.0.0.0'" in messages["ip router ospf 1 area 0.0.0.0"]
+
+
+def test_rejected_channel_group_does_not_add_port_channel():
+    result = compare("feature ospf\ninterface Ethernet1/1", "interface Ethernet1/1\n  channel-group 20 mode active")
+
+    assert [p.line for p in result.errors] == ["channel-group 20 mode active"]
+    assert "port-channel" not in result.expected
+
+
+def test_secondary_added_in_changes_blocks_primary_removal():
+    # Codex の指摘を確かめたテスト（指摘はまちがいだった）：投入の中で足した secondary も数える
+    changes = """interface loopback1
+  ip address 192.0.2.1/24
+  ip address 198.51.100.1/24 secondary
+  no ip address 192.0.2.1/24"""
+
+    result = compare("interface loopback1", changes)
+
+    assert [p.line for p in result.errors] == ["no ip address 192.0.2.1/24"]
+
+
+def test_channel_group_mode_change_is_overwritten():
+    # Codex の指摘を確かめたテスト（指摘はまちがいだった）：mode を変えても行は 1 つ
+    current = "feature lacp\ninterface port-channel10\ninterface Ethernet1/1\n  channel-group 10"
+
+    result = compare(current, "interface Ethernet1/1\n  channel-group 10 mode active")
+
+    assert result.expected == "feature lacp\ninterface port-channel10\ninterface Ethernet1/1\n  channel-group 10 mode active"
 
 
 def test_feature_enabled_after_another_feature_disabled_is_accepted():
