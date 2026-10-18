@@ -4,6 +4,7 @@ import copy
 import re
 from collections.abc import Callable
 
+from config_review.checks import Problem, check_interface
 from config_review.parser import ConfigNode
 from config_review.vlan import ALL_VLANS, calc_allowed_vlans, format_vlan_list, parse_vlan_list
 
@@ -46,17 +47,25 @@ ALLOWED_VLAN = "switchport trunk allowed vlan"
 VLAN_LINE = re.compile(r"vlan (\d[\d,\-]*)")
 
 
-def apply_changes(current: ConfigNode, changes: ConfigNode) -> ConfigNode:
+def apply_changes(
+    current: ConfigNode, changes: ConfigNode, problems: list[Problem] | None = None
+) -> ConfigNode:
     """現行 Config に投入 Config を反映した、新しいツリーを返す。
 
     current は差分を出すときに必要なので、書き換えずにコピーしてから反映する。
+    実機ではエラーになって入らないはずの行は反映せず、理由を problems に足す。
     """
     result = copy.deepcopy(current)
-    _merge(result, changes, top_level=True)
+    _merge(result, changes, top_level=True, problems=[] if problems is None else problems)
     return result
 
 
-def _merge(target: ConfigNode, changes: ConfigNode, top_level: bool = False) -> None:
+def _merge(
+    target: ConfigNode,
+    changes: ConfigNode,
+    top_level: bool = False,
+    problems: list[Problem] | None = None,
+) -> None:
     """changes の子の行を、1 行ずつ target の子に反映する。"""
     for change in changes.children:
         text = change.text
@@ -96,6 +105,10 @@ def _merge(target: ConfigNode, changes: ConfigNode, top_level: bool = False) -> 
                 for child in target.children
                 if child is existing or not should_remove(child.text)
             ]
+
+        if problems is not None and text.startswith("interface "):
+            # 「L2 のポートに ip address」のような、実機ではエラーになる行を取り除く
+            change = check_interface(target, existing, change, problems)
 
         # interface の下の行のように、子があれば同じルールで反映する。
         _merge(existing, change)

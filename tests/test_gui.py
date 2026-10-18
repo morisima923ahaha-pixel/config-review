@@ -82,3 +82,17 @@ def test_invalid_input_shows_error_instead_of_crashing(app, monkeypatch):
     app.run()
 
     assert shown and "10-2" in shown[0][1]
+
+
+def test_rejected_lines_are_shown_above_diff(app):
+    app.current.set("interface Ethernet1/1\n  switchport mode trunk")
+    app.changes.set("interface Ethernet1/1\n  ip address 192.0.2.1/30\n  description UPLINK")
+
+    app.run()
+
+    lines = app.diff_view.get("1.0", "end-1c").splitlines()
+    assert lines[0].startswith("【エラー】")
+    assert "ip address 192.0.2.1/30" in lines[1]
+    assert lines[-1] == "+  description UPLINK"
+    assert app.diff_view.tag_ranges("error")
+    assert "エラーになるはずの行：1" in app.status.cget("text")

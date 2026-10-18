@@ -1,7 +1,7 @@
 import sys
 from pathlib import Path
 
-from config_review.compare import compare, read_config_file
+from config_review.compare import compare, problem_lines, read_config_file
 
 
 def main() -> None:
@@ -19,6 +19,9 @@ def main() -> None:
     except (OSError, ValueError) as error:  # ファイルがない、「vlan 10-2」のような読めない書き方 など
         print(f"比較できませんでした：{error}")
         sys.exit(1)
+
+    for line in problem_lines(result):
+        print(line)
 
     if result.diff:
         print("\n".join(result.diff))

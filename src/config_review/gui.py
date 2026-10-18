@@ -11,7 +11,7 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from tkinter.scrolledtext import ScrolledText
 
-from config_review.compare import CompareResult, compare, read_config_file
+from config_review.compare import CompareResult, compare, problem_lines, read_config_file
 
 TITLE = "Config再鑑アシスタント"
 CODE_FONT = ("Consolas", 10)
@@ -22,16 +22,25 @@ COLORS = {
     "removed": {"background": "#ffebe9", "foreground": "#82071e"},
     "added": {"background": "#dafbe1", "foreground": "#116329"},
     "context": {"foreground": "#57606a"},
+    # 実機ではエラーになるはずの行・確認してほしい行（差分より上に、目立つ色で出す）
+    "error": {"background": "#cf222e", "foreground": "#ffffff", "font": ("Consolas", 10, "bold")},
+    "warning": {"background": "#fff8c5", "foreground": "#7d4e00"},
 }
+ALERT_COLOR = "#cf222e"
 
 
 def summarize(result: CompareResult) -> str:
     """画面下に出す「何行変わるか」のまとめ。"""
     removed = sum(1 for line in result.diff if line.startswith("-"))
     added = sum(1 for line in result.diff if line.startswith("+"))
+    alerts = ""
+    if result.errors:
+        alerts += f"⚠ エラーになるはずの行：{len(result.errors)}　"
+    if result.warnings:
+        alerts += f"要確認：{len(result.warnings)}　"
     if not result.diff:
-        return "差分はありません（投入しても Config は変わりません）"
-    text = f"消える行：{removed}　増える行：{added}"
+        return alerts + "差分はありません（投入しても Config は変わりません）"
+    text = alerts + f"消える行：{removed}　増える行：{added}"
     if result.notes:
         text += f"　／　読みかえのメモが {len(result.notes)} 件あります（「メモ」タブ）"
     return text
@@ -147,13 +156,28 @@ class App(ttk.Frame):
         diff_lines = [(line, tags.get(line[:1])) for line in self.result.diff]
         if not diff_lines:
             diff_lines = [("差分はありません（投入しても Config は変わりません）", None)]
-        self._show(self.diff_view, diff_lines)
+        self._show(self.diff_view, self._problem_view_lines() + diff_lines)
         self._show(self.expected_view, [(line, None) for line in self.result.expected.splitlines()])
         notes = self.result.notes or ["読みかえはありません"]
         self._show(self.notes_view, [("※ " + note, None) for note in notes])
 
-        self.status.configure(text=summarize(self.result))
+        self.status.configure(
+            text=summarize(self.result),
+            foreground=ALERT_COLOR if self.result.problems else "",
+        )
         self.tabs.select(self.diff_view)
+
+    def _problem_view_lines(self) -> list[tuple[str, str | None]]:
+        """差分タブの一番上に出す、エラー（赤）と要確認（黄）の行。"""
+        lines: list[tuple[str, str | None]] = []
+        tag: str | None = None
+        for line in problem_lines(self.result):
+            if line.startswith("【エラー】"):
+                tag = "error"
+            elif line.startswith("【要確認】"):
+                tag = "warning"
+            lines.append((line, tag if line else None))
+        return lines
 
     def result_text(self) -> str:
         """いま選んでいるタブの内容（コピー・保存用）。"""
