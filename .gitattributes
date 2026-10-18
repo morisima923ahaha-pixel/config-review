@@ -1,2 +1,4 @@
 # 改行コードを LF に統一する（Windows と GitHub Actions の Linux で同じ内容にするため）
 * text=auto eol=lf
+# .bat は Windows のコマンドプロンプトが読むので CRLF にする（LF だとまれに誤動作する）
+*.bat text eol=crlf
