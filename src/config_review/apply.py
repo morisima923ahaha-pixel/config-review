@@ -4,7 +4,7 @@ import copy
 import re
 from collections.abc import Callable
 
-from config_review.checks import Problem, check_interface
+from config_review.checks import L3, Checker, Problem, command_kind
 from config_review.parser import ConfigNode
 from config_review.vlan import ALL_VLANS, calc_allowed_vlans, format_vlan_list, parse_vlan_list
 
@@ -56,21 +56,26 @@ def apply_changes(
     実機ではエラーになって入らないはずの行は反映せず、理由を problems に足す。
     """
     result = copy.deepcopy(current)
-    _merge(result, changes, top_level=True, problems=[] if problems is None else problems)
+    checker = Checker.for_config(current, [] if problems is None else problems)
+    _merge(result, changes, checker=checker)
     return result
 
 
-def _merge(
-    target: ConfigNode,
-    changes: ConfigNode,
-    top_level: bool = False,
-    problems: list[Problem] | None = None,
-) -> None:
-    """changes の子の行を、1 行ずつ target の子に反映する。"""
+def _merge(target: ConfigNode, changes: ConfigNode, checker: Checker | None = None) -> None:
+    """changes の子の行を、1 行ずつ target の子に反映する。
+
+    checker を渡すのは最上位（root）のときだけ。最上位の行と interface の下の行を確かめる。
+    """
+    top_level = checker is not None
     for change in changes.children:
         text = change.text
 
+        if top_level and not checker.check_top_level(target, change):
+            continue  # 「feature interface-vlan」がないのに「interface Vlan10」など、入らないブロック
+
         if top_level and VLAN_LINE.fullmatch(text.removeprefix("no ")):
+            if text.startswith("no "):
+                checker.check_vlan_removal(target, text, _vlan_numbers(text.removeprefix("no ")))
             _apply_vlan(target, change)
             continue
 
@@ -81,6 +86,10 @@ def _merge(
         if _matches(text, ALLOWED_VLAN):
             _apply_allowed_vlan(target, text)
             continue
+
+        if text == "switchport":
+            # L2 に切り替えると、ip address などの L3 の設定は消える
+            target.children = [c for c in target.children if command_kind(c.text) != L3]
 
         if text in SHOWN_NO_FORMS and not SHOWN_NO_FORMS[text]:
             # 既定の状態に戻すだけなので、行は増えない（「no ip redirects」が消えるだけ）
@@ -106,9 +115,9 @@ def _merge(
                 if child is existing or not should_remove(child.text)
             ]
 
-        if problems is not None and text.startswith("interface "):
+        if top_level and text.startswith("interface "):
             # 「L2 のポートに ip address」のような、実機ではエラーになる行を取り除く
-            change = check_interface(target, existing, change, problems)
+            change = checker.check_interface(target, existing, change)
 
         # interface の下の行のように、子があれば同じルールで反映する。
         _merge(existing, change)
