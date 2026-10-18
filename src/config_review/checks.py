@@ -81,6 +81,8 @@ INTERFACE_FEATURES = (
 
 # VLAN を使う interface の設定。作られていない VLAN を指定すると、入るが通信できない。
 VLAN_USERS = re.compile(r"switchport (access vlan|trunk native vlan) (\d+)")
+# トランクで通す VLAN の一覧（「allowed vlan 10,20」「allowed vlan add 30」）。消す VLAN が含まれていたら知らせる
+ALLOWED_VLANS = re.compile(r"switchport trunk allowed vlan (?:add )?(\d[\d,\-]*)")
 SVI = re.compile(r"interface Vlan(\d+)")
 VLAN_SUMMARY = re.compile(r"vlan (\d[\d,\-]*)")
 
@@ -185,6 +187,8 @@ class Checker:
     features_known: bool = False
     vlans_known: bool = False
     _warned_features: set[str] = field(default_factory=set)
+    # 投入 Config の中の「no feature 〇〇」で無効にした feature
+    _disabled_features: set[str] = field(default_factory=set)
 
     @classmethod
     def for_config(cls, current: ConfigNode, problems: list[Problem]) -> "Checker":
@@ -201,7 +205,9 @@ class Checker:
 
         root は反映の途中の状態なので、投入 Config の前のほうで「feature 〇〇」を入れていれば有効になっている。
         """
-        if any(c.text == f"feature {feature}" for c in root.children) or _feature_in_use(root, feature):
+        if any(c.text == f"feature {feature}" for c in root.children):
+            return False
+        if feature not in self._disabled_features and _feature_in_use(root, feature):
             return False
         if self.features_known:
             self.problems.append(Problem(
@@ -224,6 +230,11 @@ class Checker:
 
     def check_top_level(self, root: ConfigNode, change: ConfigNode) -> bool:
         """interface Vlan10・router ospf 1 のような最上位の行を確かめる。入らないなら False。"""
+        if change.text.startswith("no feature "):
+            # 無効にしたあとは、その feature を使う設定が残っていても「有効」とはみなさない
+            self._disabled_features.add(change.text.removeprefix("no feature "))
+        elif change.text.startswith("feature "):
+            self._disabled_features.discard(change.text.removeprefix("feature "))
         for pattern, feature in TOP_LEVEL_FEATURES:
             if pattern.fullmatch(change.text):
                 # interface Vlan10 自体が入らなければ、その下の行も全部入らない
@@ -249,22 +260,26 @@ class Checker:
             ))
 
     def check_vlan_removal(self, root: ConfigNode, line: str, numbers: set[int]) -> None:
-        """「no vlan 10」で消す VLAN を、まだ使っている interface があれば知らせる。"""
+        """「no vlan 10」で消す VLAN を、まだ使っている interface があれば知らせる（1 つにまとめて）。"""
+        users: list[str] = []
         for interface in root.children:
-            users = [
+            lines = [
                 c.text
                 for c in interface.children
-                if (m := VLAN_USERS.fullmatch(c.text)) and int(m.group(2)) in numbers
+                if ((m := VLAN_USERS.fullmatch(c.text)) and int(m.group(2)) in numbers)
+                or ((m := ALLOWED_VLANS.fullmatch(c.text)) and parse_vlan_list(m.group(1)) & numbers)
             ]
             if (m := SVI.fullmatch(interface.text)) and int(m.group(1)) in numbers:
-                users.append(interface.text)
-            if users:
-                self.problems.append(Problem(
-                    line, line,
-                    f"消す VLAN を {interface.text} で使っています（{' / '.join(users)}）。"
-                    "VLAN を消すと、この interface は通信できなくなるはずです。",
-                    rejected=False,
-                ))
+                lines.append(interface.text)
+            if lines:
+                users.append(f"{interface.text}（{' / '.join(lines)}）")
+        if users:
+            self.problems.append(Problem(
+                line, line,
+                f"消す VLAN を使っている設定があります：{'、'.join(users)}。"
+                "VLAN を消すと、この VLAN では通信できなくなるはずです。",
+                rejected=False,
+            ))
 
     # ---- interface ----
 
@@ -308,6 +323,8 @@ class Checker:
                     rejected=True,
                 ))
                 continue
+            if text == "switchport" and mode != L2:
+                self._check_kept_ip_lines(interface, text)
             if text == "switchport" or text == "no switchport":
                 mode = L2 if text == "switchport" else L3
                 allowed.children.append(child)
@@ -352,3 +369,22 @@ class Checker:
             ))
 
         return allowed
+
+    def _check_kept_ip_lines(self, interface: ConfigNode, line: str) -> None:
+        """L2 に切り替えるとき、L3 の一覧にない ip の設定が残る想定になっていれば知らせる。
+
+        ツールは L3_COMMANDS の一覧にある設定だけを「消える」扱いにしているので、
+        ip access-group のような一覧にない設定が、実機でも残るのか消えるのかはわからない。
+        """
+        kept = [
+            c.text
+            for c in interface.children
+            if c.text.removeprefix("no ").startswith(("ip ", "ipv6 ")) and command_kind(c.text) is None
+        ]
+        if kept:
+            self.problems.append(Problem(
+                interface.text, line,
+                f"L2 に切り替えると ip address などの L3 の設定は消える扱いにしましたが、"
+                f"{' / '.join(kept)} は残る扱いにしています。実機でも残るか確かめてください。",
+                rejected=False,
+            ))

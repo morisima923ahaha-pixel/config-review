@@ -319,3 +319,44 @@ def test_problem_text_does_not_repeat_line():
     result = compare(FEATURES, "interface Vlan10\n  no shutdown")
 
     assert str(result.errors[0]).startswith("「interface Vlan10」は実機では")
+
+
+def test_switchport_warns_about_ip_lines_it_keeps():
+    current = L3_PORT + "\n  ip access-group ACL in"
+
+    result = compare(current, "interface Ethernet1/1\n  switchport")
+
+    assert "ip address" not in result.expected
+    assert [p.line for p in result.warnings] == ["switchport"]
+    assert "ip access-group ACL in" in result.warnings[0].message
+
+
+def test_feature_disabled_in_changes_is_not_revived_by_existing_use():
+    current = "feature lacp\ninterface Ethernet1/1\n  switchport\n  channel-group 10 mode active"
+    changes = "no feature lacp\ninterface Ethernet1/2\n  channel-group 20 mode active"
+
+    result = compare(current, changes)
+
+    assert [p.line for p in result.errors] == ["channel-group 20 mode active"]
+
+
+def test_feature_enabled_after_another_feature_disabled_is_accepted():
+    # Codex の指摘（2 回目）を確かめたテスト：feature を入れたあとなら、別の feature を消していても入る
+    result = compare("feature lacp", "no feature lacp\nfeature interface-vlan\ninterface Vlan10\n  no shutdown")
+
+    assert result.problems == []
+
+
+def test_removing_vlan_in_allowed_list_gives_one_warning():
+    current = """vlan 1,10,20
+interface Ethernet1/1
+  switchport mode trunk
+  switchport trunk allowed vlan 10,20
+interface Ethernet1/2
+  switchport access vlan 20"""
+
+    result = compare(current, "no vlan 10,20")
+
+    assert len(result.warnings) == 1
+    assert "Ethernet1/1" in result.warnings[0].message
+    assert "Ethernet1/2" in result.warnings[0].message
