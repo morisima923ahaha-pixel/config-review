@@ -11,7 +11,7 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from tkinter.scrolledtext import ScrolledText
 
-from config_review.compare import CompareResult, compare
+from config_review.compare import CompareResult, compare, read_config_file
 
 TITLE = "Config再鑑アシスタント"
 CODE_FONT = ("Consolas", 10)
@@ -23,18 +23,6 @@ COLORS = {
     "added": {"background": "#dafbe1", "foreground": "#116329"},
     "context": {"foreground": "#57606a"},
 }
-
-
-def read_text_file(path: Path) -> str:
-    """テキストファイルを読む。UTF-8 で読めなければ Shift_JIS（Windows の日本語）で読む。
-
-    Tera Term のログなど、Windows で保存したファイルは Shift_JIS のことがあるため。
-    """
-    data = path.read_bytes()
-    try:
-        return data.decode("utf-8-sig")
-    except UnicodeDecodeError:
-        return data.decode("cp932", errors="replace")
 
 
 def summarize(result: CompareResult) -> str:
@@ -79,7 +67,7 @@ class ConfigInput(ttk.Frame):
             filetypes=[("テキストファイル", "*.txt *.log *.cfg *.conf"), ("すべてのファイル", "*.*")],
         )
         if path:
-            self.set(read_text_file(Path(path)))
+            self.set(read_config_file(Path(path)))
 
 
 class App(ttk.Frame):
@@ -192,8 +180,8 @@ class App(ttk.Frame):
         if not SAMPLES.is_dir():
             messagebox.showinfo(TITLE, f"サンプルのフォルダが見つかりません：{SAMPLES}", parent=self)
             return
-        self.current.set(read_text_file(SAMPLES / "nxos_running.txt"))
-        self.changes.set(read_text_file(SAMPLES / "nxos_change.txt"))
+        self.current.set(read_config_file(SAMPLES / "nxos_running.txt"))
+        self.changes.set(read_config_file(SAMPLES / "nxos_change.txt"))
         self.run()
 
 

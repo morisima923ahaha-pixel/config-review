@@ -1,7 +1,7 @@
 import sys
 from pathlib import Path
 
-from config_review.compare import compare
+from config_review.compare import compare, read_config_file
 
 
 def main() -> None:
@@ -12,8 +12,8 @@ def main() -> None:
         sys.exit(1)
 
     result = compare(
-        Path(sys.argv[1]).read_text(encoding="utf-8"),
-        Path(sys.argv[2]).read_text(encoding="utf-8"),
+        read_config_file(Path(sys.argv[1])),
+        read_config_file(Path(sys.argv[2])),
     )
 
     if result.diff:

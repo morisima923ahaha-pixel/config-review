@@ -2,7 +2,8 @@ import tkinter as tk
 
 import pytest
 
-from config_review.gui import App, read_text_file
+from config_review.compare import read_config_file
+from config_review.gui import App
 
 
 @pytest.fixture(scope="module")
@@ -65,8 +66,8 @@ def test_samples_can_be_loaded(app):
     assert "+hostname LAB-NX02" in app.diff_view.get("1.0", "end-1c")
 
 
-def test_read_text_file_falls_back_to_shift_jis(tmp_path):
+def test_read_config_file_falls_back_to_shift_jis(tmp_path):
     path = tmp_path / "log.txt"
     path.write_bytes("description 本社".encode("cp932"))
 
-    assert read_text_file(path) == "description 本社"
+    assert read_config_file(path) == "description 本社"

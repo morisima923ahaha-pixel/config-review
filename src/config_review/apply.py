@@ -198,9 +198,18 @@ def _apply_vlan(root: ConfigNode, change: ConfigNode) -> None:
     negate = change.text.startswith("no ")
     numbers = _vlan_numbers(change.text.removeprefix("no "))
 
-    # 最初に出てくる vlan の行が一覧の行。現行 Config に一覧がなければ、VLAN 1 だけある状態とみなす。
-    summary = next((c for c in root.children if _vlan_numbers(c.text) is not None), None)
-    vlans = _vlan_numbers(summary.text) if summary else {1}
+    # 子の行（name など）を持たない vlan の行が一覧の行。
+    # 現行 Config に一覧がなければ（一部だけ貼り付けたときなど）、VLAN 1 と、
+    # vlan のブロックがある VLAN だけが作られている状態とみなす。
+    summary = next(
+        (c for c in root.children if not c.children and _vlan_numbers(c.text) is not None), None
+    )
+    if summary is not None:
+        vlans = _vlan_numbers(summary.text)
+    else:
+        vlans = {1}
+        for child in root.children:
+            vlans |= _vlan_numbers(child.text) or set()
 
     if negate:
         vlans -= numbers

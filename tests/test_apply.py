@@ -406,3 +406,17 @@ def test_no_ip_redirects_is_shown_and_ip_redirects_removes_it():
     assert after_no == "interface Vlan10\n  no ip redirects"
 
     assert apply(after_no, "interface Vlan10\n  ip redirects") == "interface Vlan10"
+
+
+def test_vlan_block_is_not_mistaken_for_vlan_list():
+    # 一覧の行がない Config（一部だけ貼り付けた場合）でも、vlan 10 のブロックを壊さない
+    current = """vlan 10
+  name USERS"""
+    changes = """vlan 30
+  name GUEST"""
+
+    assert apply(current, changes) == """vlan 1,10,30
+vlan 10
+  name USERS
+vlan 30
+  name GUEST"""
