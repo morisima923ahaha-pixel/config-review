@@ -420,3 +420,19 @@ vlan 10
   name USERS
 vlan 30
   name GUEST"""
+
+
+def test_vrf_member_and_channel_group_are_overwritten():
+    current = """interface Vlan10
+  vrf member A
+interface Ethernet1/1
+  channel-group 10 mode active"""
+    changes = """interface Vlan10
+  vrf member B
+interface Ethernet1/1
+  channel-group 20 mode active"""
+
+    assert apply(current, changes) == """interface Vlan10
+  vrf member B
+interface Ethernet1/1
+  channel-group 20 mode active"""

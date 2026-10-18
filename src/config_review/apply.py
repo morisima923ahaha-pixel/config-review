@@ -21,6 +21,10 @@ OVERWRITE_COMMANDS = (
     "mtu",
     "speed",
     "duplex",
+    "vrf member",
+    "channel-group",
+    "bandwidth",
+    "spanning-tree port type",
 )
 
 # 「no 〇〇」の形のまま show run に表示されるコマンド。
