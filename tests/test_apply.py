@@ -461,6 +461,7 @@ interface Ethernet1/2
 
 
 def test_port_channel_is_placed_in_number_order():
+    # ほかの port-channel があるときの並び順は、実機で確かめていない（Codex の 6 回目 #1）。今のツールの動きを固定するだけ
     current = "interface port-channel5\ninterface port-channel20\ninterface Ethernet1/1"
     changes = "interface Ethernet1/1\n  channel-group 10 mode on"
 

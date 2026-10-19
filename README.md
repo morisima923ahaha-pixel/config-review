@@ -1,5 +1,7 @@
 # Config再鑑アシスタント（NX-OS）
 
+![test](https://github.com/morisima923ahaha-pixel/config-review/actions/workflows/test.yml/badge.svg)
+
 Cisco NX-OS の **現行の running-config** と **これから投入する Config** から、
 **投入後の想定 Config** を作り、**何が変わるか（差分）** を表示するツールです。
 Config 投入前のダブルチェック（再鑑）の手助けを目的にしています。
@@ -17,8 +19,10 @@ Config 投入前のダブルチェック（再鑑）の手助けを目的にし�
   - `no shutdown`・`no switchport`・`no ip redirects`・`no cdp enable` は `no` の形のまま残す
   - `vrf member` で VRF が変わると、その interface の `ip address` などの L3 の設定を消す
   - `channel-group` を入れると、その番号の `interface port-channel` を作る
+  - `no feature ospf` などで、その feature を使う設定（`router ospf`・`ip ospf` の行など）が黙って消えるのを再現して、【要確認】で知らせる
+  - `ip access-group` は向き（in / out）ごとに上書き、`load-interval counter 1 30` のような既定値は表示しない
 - 実機ではエラーになって入らないはずの投入を見つけて、赤い【エラー】で知らせる（想定 Config には入れない）
-  - L2 のポートに `ip address`、feature を有効にしていない `interface Vlan10`、secondary が残ったままの primary の削除など
+  - L2 のポートに `ip address`、feature を有効にしていない `interface Vlan10`、secondary が残ったままの primary の削除、今と違う名前の `no vrf member` など
 - 投入 Config の書き方のゆれをそろえる
   - `conf t`・`end`・`copy run start` などの行を読み飛ばす
   - インデントのない形（`exit` 入り）も読める
@@ -60,6 +64,8 @@ uv run config-review samples/nxos_running.txt samples/nxos_change.txt
 uv sync
 uv run pytest -q
 ```
+
+GitHub に push するたびに、GitHub Actions が Windows でテストを全部動かします（`.github/workflows/test.yml`）。
 
 | ファイル | 役割 |
 |---|---|

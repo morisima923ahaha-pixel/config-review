@@ -591,3 +591,22 @@ def test_feature_disabled_then_enabled_again_is_accepted():
     result = compare(current, changes)
 
     assert result.problems == []
+
+
+def test_rejected_no_vrf_member_does_not_change_later_checks():
+    # Codex の指摘（6 回目 #3）：弾いた行のあとも、今の VRF は A のまま
+    current = "interface loopback1\n  vrf member A\n  ip address 192.0.2.1/24"
+
+    result = compare(current, "interface loopback1\n  no vrf member B\n  no vrf member A")
+
+    assert [(p.line, p.rejected) for p in result.problems] == [("no vrf member B", True)]
+    assert result.expected == "interface loopback1"
+
+
+def test_no_vrf_member_without_vrf_gives_warning():
+    # Codex の指摘（6 回目 #2）：VRF がないときの実機の動きは確かめていない
+    result = compare("interface loopback1\n  ip address 192.0.2.1/24", "interface loopback1\n  no vrf member B")
+
+    assert result.errors == []
+    assert [p.line for p in result.warnings] == ["no vrf member B"]
+    assert result.expected == "interface loopback1\n  ip address 192.0.2.1/24"

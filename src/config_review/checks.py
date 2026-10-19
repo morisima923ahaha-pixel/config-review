@@ -379,6 +379,14 @@ class Checker:
                     rejected=True,
                 ))
                 continue
+            if text.startswith("no vrf member") and vrf is None and checks_mode:
+                # VRF がないときの動き（エラーか、何も起きないか）は実機で確かめていない
+                self.problems.append(Problem(
+                    interface.text, text,
+                    "この interface には VRF の設定（vrf member）がありません。"
+                    "実機でエラーになるか、何も起きないかは確かめていません（想定 Config は何も変えていません）。",
+                    rejected=False,
+                ))
             if text.startswith("ip dhcp relay ") and interface.text.startswith("interface loopback"):
                 self.problems.append(Problem(
                     interface.text, text,

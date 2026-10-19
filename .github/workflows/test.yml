@@ -1,0 +1,17 @@
+# push と pull request のたびに、テストを全部動かす。
+# 使う人の PC と同じ Windows で動かす（画面（tkinter）のテストも、Windows ならそのまま動く）。
+name: test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  pytest:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      # .python-version の Python（3.13）を入れて、テスト用の pytest も入れる
+      - run: uv sync
+      - run: uv run pytest -q
