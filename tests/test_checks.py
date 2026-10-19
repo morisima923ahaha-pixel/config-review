@@ -432,26 +432,105 @@ def test_rejected_l2_l3_line_shows_device_error():
 def test_missing_feature_shows_device_error_only_when_checked():
     result = compare(
         "feature ospf",
-        "interface Ethernet1/1\n  channel-group 10 mode active\ninterface Vlan10\n  no shutdown\nrouter bgp 65000",
+        "interface Ethernet1/1\n  channel-group 10 mode active\ninterface Vlan10\n  no shutdown\nrouter eigrp 1",
     )
 
     messages = {p.line: p.message for p in result.errors}
     assert "LACP process needs to be started" in messages["channel-group 10 mode active"]
     assert "Syntax error while parsing 'interface Vlan10'" in messages["interface Vlan10"]
-    assert "実機の表示" not in messages["router bgp 65000"]  # bgp は実機で確かめていない
+    assert "実機の表示" not in messages["router eigrp 1"]  # eigrp は実機で確かめていない
 
 
 def test_device_error_is_not_shown_for_unchecked_line_of_checked_feature():
-    # Codex の指摘：feature ospf でも、実機で確かめたのは「ip router ospf」だけ
+    # Codex の指摘：同じ feature でも、確かめた形にだけ添える（ip ospf・router ospf は 2026-10-19 の昼に確認）
     result = compare(
         "feature lacp",
-        "router ospf 1\ninterface Ethernet1/1\n  no switchport\n  ip router ospf 1 area 0.0.0.0\n  ip ospf cost 10",
+        "router ospf 1\ninterface Ethernet1/1\n  no switchport\n  ip router ospf 1 area 0.0.0.0\n"
+        "  ip ospf cost 10\n  ipv6 router ospfv3 1 area 0.0.0.0\n  vrrp 1",
     )
 
     messages = {p.line: p.message for p in result.errors}
-    assert "実機の表示" not in messages["router ospf 1"]
-    assert "実機の表示" not in messages["ip ospf cost 10"]
+    assert "Syntax error while parsing 'router ospf 1'" in messages["router ospf 1"]
+    assert "Syntax error while parsing 'ip ospf cost 10'" in messages["ip ospf cost 10"]
     assert "Syntax error while parsing 'ip router ospf 1 area 0.0.0.0'" in messages["ip router ospf 1 area 0.0.0.0"]
+    assert "実機の表示" not in messages["ipv6 router ospfv3 1 area 0.0.0.0"]
+    assert "実機の表示" not in messages["vrrp 1"]
+
+
+# ここから下は、2026-10-19 の昼に NX-OS 10.4(2) の実機で確かめた結果に合わせている
+def test_no_vrf_member_with_other_name_is_rejected():
+    current = "interface loopback1\n  vrf member A\n  ip address 192.0.2.1/24"
+
+    result = compare(current, "interface loopback1\n  no vrf member B")
+
+    assert result.diff == []
+    assert [p.line for p in result.errors] == ["no vrf member B"]
+    assert "ERROR: VRF B not configured on interface loopback1" in result.errors[0].message
+
+
+def test_no_vrf_member_with_same_name_deletes_l3_config():
+    current = "interface loopback1\n  vrf member A\n  ip address 192.0.2.1/24"
+
+    result = compare(current, "interface loopback1\n  no vrf member A")
+
+    assert result.errors == []
+    assert result.expected == "interface loopback1"
+
+
+def test_vrf_change_in_changes_is_used_for_no_vrf_member():
+    current = "interface loopback1\n  vrf member A"
+
+    result = compare(current, "interface loopback1\n  vrf member B\n  no vrf member B")
+
+    assert result.errors == []
+    assert result.expected == "interface loopback1"
+
+
+def test_dhcp_relay_on_loopback_is_rejected():
+    result = compare("feature dhcp\ninterface loopback1", "interface loopback1\n  ip dhcp relay address 192.0.2.200")
+
+    assert [p.line for p in result.errors] == ["ip dhcp relay address 192.0.2.200"]
+    assert "not allowed on loopback" in result.errors[0].message
+
+
+def test_no_feature_removes_its_users():
+    current = """feature ospf
+router ospf 1
+interface loopback1
+  ip address 192.0.2.1/24
+  ip router ospf 1 area 0.0.0.0
+  ip ospf cost 10"""
+
+    result = compare(current, "no feature ospf")
+
+    assert result.expected == "interface loopback1\n  ip address 192.0.2.1/24"
+    assert "黙って消えます" in result.warnings[0].message
+    assert "router ospf 1" in result.warnings[0].message
+
+
+def test_no_feature_interface_vlan_removes_svi():
+    current = "feature interface-vlan\ninterface Vlan10\n  ip address 192.0.2.1/24\ninterface Ethernet1/1"
+
+    result = compare(current, "no feature interface-vlan")
+
+    assert result.expected == "interface Ethernet1/1"
+
+
+def test_no_feature_hsrp_removes_hsrp_block():
+    current = "feature hsrp\ninterface Ethernet1/1\n  no switchport\n  hsrp 1\n    ip 192.0.2.6"
+
+    result = compare(current, "no feature hsrp")
+
+    assert result.expected == "interface Ethernet1/1\n  no switchport"
+
+
+def test_no_feature_not_checked_on_device_keeps_users():
+    current = "feature bgp\nrouter bgp 65000\n  router-id 192.0.2.1"
+
+    result = compare(current, "no feature bgp")
+
+    assert result.expected == "router bgp 65000\n  router-id 192.0.2.1"
+    assert "確かめていない" in result.warnings[0].message
 
 
 def test_rejected_channel_group_does_not_add_port_channel():

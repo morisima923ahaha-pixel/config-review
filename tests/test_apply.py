@@ -449,6 +449,28 @@ interface Ethernet1/1
   channel-group 10"""
 
 
+def test_port_channel_is_placed_before_ethernet():
+    current = "interface Vlan10\ninterface Ethernet1/1\ninterface Ethernet1/2"
+    changes = "interface Ethernet1/2\n  channel-group 10 mode on"
+
+    assert apply(current, changes) == """interface Vlan10
+interface port-channel10
+interface Ethernet1/1
+interface Ethernet1/2
+  channel-group 10"""
+
+
+def test_port_channel_is_placed_in_number_order():
+    current = "interface port-channel5\ninterface port-channel20\ninterface Ethernet1/1"
+    changes = "interface Ethernet1/1\n  channel-group 10 mode on"
+
+    assert apply(current, changes).splitlines()[:3] == [
+        "interface port-channel5",
+        "interface port-channel10",
+        "interface port-channel20",
+    ]
+
+
 def test_existing_port_channel_is_not_added_again():
     current = "interface port-channel10\n  description UPLINK\ninterface Ethernet1/1"
     changes = "interface Ethernet1/1\n  channel-group 10 mode active"
@@ -589,3 +611,92 @@ def test_ip_address_before_vrf_change_is_deleted():
 
     assert apply(current, changes) == """interface Vlan10
   vrf member B"""
+
+
+# ここから下は、2026-10-19 の昼に NX-OS 10.4(2) の実機で確かめた結果に合わせている
+def test_vrf_change_deletes_more_l3_config():
+    current = """interface Ethernet1/1
+  description A
+  no switchport
+  mtu 9216
+  load-interval counter 1 60
+  ip access-group ACL1 in
+  vrf member A
+  ip address 192.0.2.5/30
+  ip directed-broadcast
+  ipv6 address 2001:db8::5/64
+  ipv6 nd ra-interval 30 min 10
+  ip igmp version 3
+  ip local-proxy-arp"""
+
+    # ip access-group・mtu・load-interval・description は残る
+    assert apply(current, "interface Ethernet1/1\n  vrf member B") == """interface Ethernet1/1
+  description A
+  no switchport
+  mtu 9216
+  load-interval counter 1 60
+  ip access-group ACL1 in
+  vrf member B"""
+
+
+def test_no_vrf_member_with_other_name_changes_nothing():
+    current = "interface loopback1\n  vrf member A\n  ip address 192.0.2.1/24"
+
+    assert apply(current, "interface loopback1\n  no vrf member B") == current
+
+
+def test_access_group_is_overwritten_per_direction():
+    current = "interface Ethernet1/1\n  no switchport\n  ip access-group ACL1 in"
+    changes = "interface Ethernet1/1\n  ip access-group ACL2 in\n  ip access-group ACL1 out"
+
+    assert apply(current, changes) == """interface Ethernet1/1
+  no switchport
+  ip access-group ACL2 in
+  ip access-group ACL1 out"""
+
+
+def test_service_policy_input_is_overwritten():
+    current = "interface Ethernet1/1\n  service-policy type qos input PM1"
+
+    assert apply(current, "interface Ethernet1/1\n  service-policy type qos input PM2") == (
+        "interface Ethernet1/1\n  service-policy type qos input PM2"
+    )
+
+
+def test_default_load_interval_is_not_shown():
+    current = "interface Ethernet1/1\n  load-interval counter 1 60\n  load-interval counter 2 120"
+    changes = "interface Ethernet1/1\n  load-interval counter 1 30\n  load-interval counter 2 300"
+
+    assert apply(current, changes) == "interface Ethernet1/1"
+
+
+def test_no_snmp_trap_link_status_is_shown_and_positive_removes_it():
+    no_form = apply("interface Ethernet1/1", "interface Ethernet1/1\n  no snmp trap link-status")
+    assert no_form == "interface Ethernet1/1\n  no snmp trap link-status"
+    assert apply(no_form, "interface Ethernet1/1\n  snmp trap link-status") == "interface Ethernet1/1"
+
+
+def test_logging_event_link_status_shows_both_forms():
+    no_form = apply("interface Ethernet1/1", "interface Ethernet1/1\n  no logging event port link-status")
+    assert no_form == "interface Ethernet1/1\n  no logging event port link-status"
+    assert apply(no_form, "interface Ethernet1/1\n  logging event port link-status") == (
+        "interface Ethernet1/1\n  logging event port link-status"
+    )
+
+
+def test_ospf_area_number_is_shown_as_dotted():
+    current = "interface loopback1\n  ip router ospf 1 area 0.0.0.0"
+
+    # 投入の「area 0」は現行の「area 0.0.0.0」と同じ行なので、2 行にならない
+    assert apply(current, "interface loopback1\n  ip router ospf 1 area 0") == current
+    assert apply("interface loopback1", "interface loopback1\n  ip router ospf 1 area 10") == (
+        "interface loopback1\n  ip router ospf 1 area 0.0.0.10"
+    )
+
+
+def test_dotted_ospf_area_is_kept_as_is():
+    changes = "interface loopback1\n  ip router ospf 1 area 0.0.0.1\n  ip router ospf 2 area 5 secondaries none"
+
+    assert apply("interface loopback1", changes) == (
+        "interface loopback1\n  ip router ospf 1 area 0.0.0.1\n  ip router ospf 2 area 0.0.0.5 secondaries none"
+    )

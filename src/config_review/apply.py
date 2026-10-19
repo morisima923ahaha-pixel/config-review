@@ -1,10 +1,18 @@
 """現行 Config のツリーに投入 Config のツリーを反映して、投入後の想定 Config を作る。"""
 
 import copy
+import ipaddress
 import re
 from collections.abc import Callable
 
-from config_review.checks import L3, Checker, Problem, command_kind
+from config_review.checks import (
+    INTERFACE_FEATURES,
+    L3,
+    TOP_LEVEL_FEATURES,
+    Checker,
+    Problem,
+    command_kind,
+)
 from config_review.parser import ConfigNode
 from config_review.vlan import ALL_VLANS, calc_allowed_vlans, format_vlan_list, parse_vlan_list
 
@@ -30,8 +38,30 @@ OVERWRITE_COMMANDS = (
     "load-interval counter 1",
     "load-interval counter 2",
     "load-interval counter 3",
+    "service-policy type qos input",
 )
-# OVERWRITE_COMMANDS のうち spanning-tree cost・load-interval は、2026-10-19 に NX-OS 10.4(2) の実機で確認
+# OVERWRITE_COMMANDS のうち spanning-tree cost・load-interval・service-policy type qos input は、
+# 2026-10-19 に NX-OS 10.4(2) の実機で確認
+
+# 「ip access-group A in」は、同じ向き（in / out）の行だけを上書きする。in と out は別々に持てる
+# （2026-10-19 に NX-OS 10.4(2) の実機で、in の上書きと、in と out が両方残ることを確認。out の上書きは未確認）
+ACCESS_GROUP = re.compile(r"ip access-group \S+ (in|out)")
+
+# 既定値と同じ値を入れると、show run には行が出ない（2026-10-19 に NX-OS 10.4(2) の実機で確認）。
+# 値は「消える行のコマンド」
+DEFAULT_VALUE_LINES = {
+    "load-interval counter 1 30": "load-interval counter 1",
+    "load-interval counter 2 300": "load-interval counter 2",
+}
+
+# 「ip router ospf 1 area 0」は、show run では「area 0.0.0.0」と表示される
+# （2026-10-19 に NX-OS 10.4(2) の実機で area 0 を確認。ほかの番号も同じ書き方になるはず）
+OSPF_AREA = re.compile(r"(ip router ospf \S+ area )(\d+)((?: .*)?)")
+
+# 「no feature 〇〇」で、その feature を使う設定（router ospf・ip ospf の行など）も黙って消える feature
+# （2026-10-19 に NX-OS 10.4(2) の実機で確認。interface-vlan は interface Vlan〇〇 がまるごと消えた）。
+# ここにない feature は確かめていないので、消さずに確認のお願いを出す
+FEATURES_REMOVING_USERS = ("interface-vlan", "ospf", "pim", "hsrp")
 
 # 「no 〇〇」の形のまま show run に表示されるコマンド。
 # 値は「肯定の形（〇〇）も show run に表示されるか」。
@@ -43,7 +73,10 @@ SHOWN_NO_FORMS = {
     "ip redirects": False,
     "ipv6 redirects": False,
     "cdp enable": False,
+    "snmp trap link-status": False,
+    "logging event port link-status": True,
 }
+# snmp trap link-status・logging event port link-status は 2026-10-19 に NX-OS 10.4(2) の実機で確認
 
 # 「channel-group 10 mode on」は、show run では「channel-group 10」と表示される（mode on が既定のため）
 CHANNEL_GROUP_ON = re.compile(r"(channel-group \d+) mode on")
@@ -83,8 +116,7 @@ def _merge(target: ConfigNode, changes: ConfigNode, checker: Checker | None = No
     top_level = checker is not None
     for change in changes.children:
         text = change.text
-        if m := CHANNEL_GROUP_ON.fullmatch(text):
-            text = m.group(1)
+        text = _display_form(text)
 
         if top_level and not checker.check_top_level(target, change):
             continue  # 「feature interface-vlan」がないのに「interface Vlan10」など、入らないブロック
@@ -94,6 +126,9 @@ def _merge(target: ConfigNode, changes: ConfigNode, checker: Checker | None = No
                 checker.check_vlan_removal(target, text, _vlan_numbers(text.removeprefix("no ")))
             _apply_vlan(target, change)
             continue
+
+        if top_level and text.startswith("no feature "):
+            _remove_feature_users(target, text.removeprefix("no feature "), checker)
 
         if _matches(text.removeprefix("no "), VRF_MEMBER):
             _apply_vrf_member(target, text)
@@ -116,6 +151,10 @@ def _merge(target: ConfigNode, changes: ConfigNode, checker: Checker | None = No
                 for c in target.children
                 if command_kind(c.text) != L3 and not (was_l3 and _matches(c.text, "mtu"))
             ]
+
+        if text in DEFAULT_VALUE_LINES:
+            _remove_matching(target, DEFAULT_VALUE_LINES[text])
+            continue
 
         if text in SHOWN_NO_FORMS and not SHOWN_NO_FORMS[text]:
             # 既定の状態に戻すだけなので、行は増えない（「no ip redirects」が消えるだけ）
@@ -158,7 +197,6 @@ def _add_port_channels(root: ConfigNode, interface: ConfigNode, change: ConfigNo
     NX-OS では channel-group を入れると「interface port-channel〇〇」が自動でできる
     （2026-10-19 に NX-OS 10.4(2) の実機で確認。mode on・active のどちらでもできた）。
     現行 Config にもとからある channel-group は見ない（一部だけ貼り付けた Config で、port-channel を貼っていないだけかもしれないので）。
-    show run での並び順は確かめていないので、channel-group を入れた interface のすぐ前に置く。
     """
     applied = {c.text for c in interface.children}
     for child in change.children:
@@ -167,7 +205,72 @@ def _add_port_channels(root: ConfigNode, interface: ConfigNode, change: ConfigNo
             continue  # エラーで入らなかった channel-group は数えない
         name = f"interface port-channel{m.group(1)}"
         if _find_child(root, name) is None:
-            root.children.insert(root.children.index(interface), ConfigNode(text=name))
+            root.children.insert(_port_channel_position(root, interface, int(m.group(1))), ConfigNode(text=name))
+
+
+PORT_CHANNEL = re.compile(r"interface port-channel(\d+)")
+
+
+def _port_channel_position(root: ConfigNode, interface: ConfigNode, number: int) -> int:
+    """自動でできた port-channel を入れる場所。
+
+    show run では、port-channel は Ethernet より前に出る
+    （2026-10-19 に NX-OS 10.4(2) の実機で、ほかの port-channel がないときに interface Ethernet1/1 の前に出ると確認）。
+    ほかの port-channel があるときは番号順に並べる（こちらは未確認）。
+    """
+    others = [(i, int(m.group(1))) for i, c in enumerate(root.children) if (m := PORT_CHANNEL.fullmatch(c.text))]
+    if others:
+        larger = [i for i, n in others if n > number]
+        return larger[0] if larger else others[-1][0] + 1
+    ethernet = next((i for i, c in enumerate(root.children) if c.text.startswith("interface Ethernet")), None)
+    return ethernet if ethernet is not None else root.children.index(interface)
+
+
+def _display_form(text: str) -> str:
+    """投入の行を、show run に表示される書き方にそろえる。
+
+    そろえておかないと、現行 Config の「area 0.0.0.0」と投入の「area 0」が別の行に見えて、2 行になってしまう。
+    """
+    if m := CHANNEL_GROUP_ON.fullmatch(text):
+        return m.group(1)
+    if (m := OSPF_AREA.fullmatch(text)) and int(m.group(2)) < 2**32:
+        return f"{m.group(1)}{ipaddress.IPv4Address(int(m.group(2)))}{m.group(3)}"
+    return text
+
+
+def _remove_feature_users(root: ConfigNode, feature: str, checker: Checker) -> None:
+    """「no feature 〇〇」で、その feature を使う設定を消す（実機で確かめた feature だけ）。
+
+    確かめていない feature は消さずに、残る扱いにしたことを知らせる。
+    """
+    top = [p for p, f in TOP_LEVEL_FEATURES if f == feature]
+    sub = [p for p, f in INTERFACE_FEATURES if f == feature]
+    users: list[str] = []
+    for block in root.children:
+        if any(p.fullmatch(block.text) for p in top):
+            users.append(block.text)
+            continue
+        users += [f"{block.text}（{c.text}）" for c in block.children if any(p.fullmatch(c.text) for p in sub)]
+    if not users:
+        return
+    line = f"no feature {feature}"
+    if feature not in FEATURES_REMOVING_USERS:
+        checker.problems.append(Problem(
+            line, line,
+            f"この feature を使う設定（{'、'.join(users)}）が残っています。"
+            "実機で消えるのか、エラーになるのかは確かめていないので、想定 Config には残したままにしました。",
+            rejected=False,
+        ))
+        return
+    root.children = [b for b in root.children if not any(p.fullmatch(b.text) for p in top)]
+    for block in root.children:
+        block.children = [c for c in block.children if not any(p.fullmatch(c.text) for p in sub)]
+    checker.problems.append(Problem(
+        line, line,
+        f"この feature を使う設定（{'、'.join(users)}）は、実機ではエラーにならずに黙って消えます。"
+        "想定 Config からも消しました。消えてよい設定か確かめてください。",
+        rejected=False,
+    ))
 
 
 def _apply_no(target: ConfigNode, command: str) -> None:
@@ -188,13 +291,14 @@ def _apply_vrf_member(target: ConfigNode, text: str) -> None:
     VRF なし → VRF あり、VRF A → VRF B、no vrf member のどれでも消え、
     「Warning: Deleted all L3 config on interface 〇〇」と表示される。
     同じ VRF を入れ直したときは何も消えない。
+    今と違う名前で「no vrf member 〇〇」を入れるとエラーになり、何も変わらない（checks.py で弾く）。
     （2026-10-19 に NX-OS 10.4(2) の実機（loopback）で確認）
     """
     current = next((c.text for c in target.children if _matches(c.text, VRF_MEMBER)), None)
     if text == current:
         return  # 同じ VRF の入れ直し
     if text.startswith("no "):
-        if current is not None:
+        if current is not None and text in ("no " + VRF_MEMBER, "no " + current):
             target.children = [c for c in target.children if command_kind(c.text) != L3]
         return
     # 消した L3 の設定の先頭の場所に、新しい vrf member の行を入れる（show run でも ip address より前に出る）
@@ -219,6 +323,9 @@ def _replace(target: ConfigNode, should_remove: Callable[[str], bool], node: Con
 
 def _replaced_by(text: str) -> Callable[[str], bool]:
     """text を投入したときに置き換わる（消える）既存の行を見分ける関数を返す。"""
+    if m := ACCESS_GROUP.fullmatch(text):
+        direction = m.group(1)
+        return lambda t: bool((n := ACCESS_GROUP.fullmatch(t)) and n.group(1) == direction)
     for command in OVERWRITE_COMMANDS:
         if not text.startswith(command + " "):
             continue

@@ -9,6 +9,7 @@
   - L2 のポートに L3 の設定（ip address など）、L3 のポートに L2 の設定（switchport 〇〇）
   - feature が有効になっていないコマンド（feature interface-vlan がないのに interface Vlan10 など）
   - 作られていない VLAN を使う設定、使われている VLAN を消す設定（こちらは入るので要確認だけ）
+  - 今と違う名前の「no vrf member 〇〇」、loopback への DHCP relay など、実機で確かめたエラー
 """
 
 import re
@@ -41,6 +42,12 @@ L3_COMMANDS = (
     "ipv6 dhcp relay",
     "hsrp",
     "vrrp",
+    # ここから下は、VRF を変えると消える L3 の設定として 2026-10-19 に NX-OS 10.4(2) の実機で確認
+    # （ip access-group・mtu・load-interval・description は消えずに残った）
+    "ip directed-broadcast",
+    "ip local-proxy-arp",
+    "ip igmp",
+    "ipv6 nd",
 )
 
 # L2 のポートでしか使えないコマンド。「switchport」だけの行は L2 に切り替えるコマンドなので別扱い。
@@ -86,13 +93,23 @@ SYNTAX_ERROR = "Syntax error while parsing '{line}'"
 LACP_NOT_ENABLED_ERROR = "LACP process needs to be started before configuring active or passive mode"
 LACP_IN_USE_ERROR = "LACP disable failed since some port-channels exist in active or passive mode"
 PRIMARY_IN_USE_ERROR = "Must delete secondary address before deleting primary address"
+VRF_NOT_CONFIGURED_ERROR = "ERROR: VRF {vrf} not configured on interface {interface}"
+DHCP_RELAY_ON_LOOPBACK_ERROR = "The config is not allowed on loopback, tunnel and fex interfaces"
 # feature が無効なときのエラーの文章。確かめた行の形だけ
-# （同じ feature ospf でも「router ospf 1」「ip ospf cost」は確かめていないので添えない）
+# （同じ feature でも、ここにない形（ospfv3・eigrp・vrrp・vpc など）は確かめていないので添えない）
 FEATURE_ERRORS = (
     (re.compile(r"interface Vlan\d+"), SYNTAX_ERROR),
+    (re.compile(r"interface nve\d+"), SYNTAX_ERROR),
+    (re.compile(r"router ospf \S+"), SYNTAX_ERROR),
+    (re.compile(r"router bgp \S+"), SYNTAX_ERROR),
     (re.compile(r"ip router ospf .*"), SYNTAX_ERROR),
+    (re.compile(r"ip ospf .*"), SYNTAX_ERROR),
+    (re.compile(r"ip pim .*"), SYNTAX_ERROR),
+    (re.compile(r"ip dhcp relay .*"), SYNTAX_ERROR),
+    (re.compile(r"hsrp .*"), SYNTAX_ERROR),
     (LACP_CHANNEL_GROUP, LACP_NOT_ENABLED_ERROR),
 )
+# FEATURE_ERRORS は、interface Vlan・ip router ospf・LACP が 2026-10-19 の深夜、ほかは同じ日の昼に確認
 
 # VLAN を使う interface の設定。作られていない VLAN を指定すると、入るが通信できない。
 VLAN_USERS = re.compile(r"switchport (access vlan|trunk native vlan) (\d+)")
@@ -341,6 +358,8 @@ class Checker:
         unknown_lines: list[str] = []
         # secondary の ip address が残っていると、primary は消せない
         secondaries = {c.text for c in interface.children if _is_secondary_address(c.text)}
+        # 今の VRF（「vrf member 〇〇」の行。なければ None）
+        vrf = next((c.text for c in interface.children if _matches(c.text, "vrf member")), None)
 
         for child in change.children:
             text = child.text
@@ -349,6 +368,29 @@ class Checker:
                 for p, f in INTERFACE_FEATURES
             ):
                 continue
+            if text.startswith("no vrf member ") and vrf is not None and text != "no " + vrf:
+                # 今と違う名前の VRF を外そうとするとエラーになり、何も変わらない
+                name = text.removeprefix("no vrf member ")
+                self.problems.append(Problem(
+                    interface.text, text,
+                    f"今の VRF は「{vrf.removeprefix('vrf member ')}」なので、「{name}」は外せません。"
+                    "想定 Config には入れていません（ip address なども消えません）。"
+                    f"（実機の表示：{VRF_NOT_CONFIGURED_ERROR.format(vrf=name, interface=interface.text.removeprefix('interface '))}）",
+                    rejected=True,
+                ))
+                continue
+            if text.startswith("ip dhcp relay ") and interface.text.startswith("interface loopback"):
+                self.problems.append(Problem(
+                    interface.text, text,
+                    "loopback には DHCP relay を設定できません。想定 Config には入れていません。"
+                    f"（実機の表示：{DHCP_RELAY_ON_LOOPBACK_ERROR}）",
+                    rejected=True,
+                ))
+                continue
+            if _matches(text, "vrf member"):
+                vrf = text
+            elif text.startswith("no vrf member"):
+                vrf = None
             if (text == "switchport" and switchable) or (
                 _matches(text.removeprefix("no "), "vrf member")
                 and text not in {c.text for c in interface.children}
