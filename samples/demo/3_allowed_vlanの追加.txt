@@ -1,4 +1,5 @@
 ! 場面 3：トランクに VLAN を足す（add あり・なしの違い）
+! 左（① 現行の running-config）には「0_現行config_左に読み込む.txt」を読み込む
 ! 「add」をつけたので、今の 10,20 に 30 が足されて「10,20,30」になる
 ! 「add」を消して「switchport trunk allowed vlan 30」にすると、10 と 20 が消えて「30」だけになる（通信断）
 interface Ethernet1/1

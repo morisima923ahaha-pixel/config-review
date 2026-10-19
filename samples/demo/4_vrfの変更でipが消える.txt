@@ -1,4 +1,5 @@
 ! 場面 4：VRF を変えると ip address が消える（見落としやすい例）
+! 左（① 現行の running-config）には「0_現行config_左に読み込む.txt」を読み込む
 ! 投入するのは vrf member の 1 行だけだが、NX-OS は「Deleted all L3 config」と出して ip address を消す
 ! （Nexus 9000v / NX-OS 10.4(2) の実機で確認）。ip address を入れ直す行も必要
 interface Vlan10

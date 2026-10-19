@@ -1,4 +1,5 @@
 ! 場面 2：ポートチャネルの追加（ふつうにうまくいく例）
+! 左（① 現行の running-config）には「0_現行config_左に読み込む.txt」を読み込む
 ! Ethernet1/3・1/4 を束ねて、SW02 への port-channel10（LACP）を作る
 interface port-channel10
   description TO-SW02

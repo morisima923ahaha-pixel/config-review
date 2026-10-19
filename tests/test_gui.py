@@ -138,13 +138,13 @@ def test_copy_puts_selected_tab_on_clipboard(app, tab):
 
 def load_demo(app):
     """「ファイルを開く…」と同じ読み方で、デモの場面 1 を入れて比較する。"""
-    app.current.set(read_config_file(DEMO / "running-config.txt"))
+    app.current.set(read_config_file(DEMO / "0_現行config_左に読み込む.txt"))
     app.changes.set(read_config_file(next(DEMO.glob("1_*.txt"))))
     app.run()
 
 
 def test_open_file_button_loads_file(app, monkeypatch):
-    path = DEMO / "running-config.txt"
+    path = DEMO / "0_現行config_左に読み込む.txt"
     monkeypatch.setattr("config_review.gui.filedialog.askopenfilename", lambda **kwargs: str(path))
 
     app.current.open_file()

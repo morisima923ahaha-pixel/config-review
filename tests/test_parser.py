@@ -2,7 +2,7 @@ from pathlib import Path
 
 from config_review.parser import ConfigNode, parse_config, to_text
 
-SAMPLE = Path(__file__).parent.parent / "samples" / "nxos_running.txt"
+SAMPLE = Path(__file__).parent.parent / "samples" / "cli" / "nxos_running.txt"
 
 
 def test_top_level_lines_become_children_of_root():

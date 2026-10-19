@@ -22,8 +22,8 @@ end"""
 
 def test_sample_files():
     result = compare(
-        (SAMPLES / "nxos_running.txt").read_text(encoding="utf-8"),
-        (SAMPLES / "nxos_change.txt").read_text(encoding="utf-8"),
+        (SAMPLES / "cli" / "nxos_running.txt").read_text(encoding="utf-8"),
+        (SAMPLES / "cli" / "nxos_change.txt").read_text(encoding="utf-8"),
     )
 
     assert result.diff == [
@@ -69,7 +69,7 @@ DEMO = SAMPLES / "demo"
 
 def demo(prefix: str):
     return compare(
-        (DEMO / "running-config.txt").read_text(encoding="utf-8"),
+        (DEMO / "0_現行config_左に読み込む.txt").read_text(encoding="utf-8"),
         next(DEMO.glob(f"{prefix}_*.txt")).read_text(encoding="utf-8"),
     )
 

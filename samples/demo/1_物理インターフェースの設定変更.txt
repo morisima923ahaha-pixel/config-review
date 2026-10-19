@@ -1,4 +1,5 @@
 ! 場面 1：物理インターフェースの設定変更（ふつうにうまくいく例）
+! 左（① 現行の running-config）には「0_現行config_左に読み込む.txt」を読み込む
 ! Ethernet1/2 のサーバーを入れ替えて VLAN を変える。予備の Ethernet1/5 をプリンター用に使い始める
 interface Ethernet1/2
   description TO-SERVER02
