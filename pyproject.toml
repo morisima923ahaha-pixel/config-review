@@ -1,8 +1,10 @@
 [project]
 name = "config-review"
 version = "0.1.0"
-description = "Add your description here"
+description = "NX-OS の現行 Config と投入 Config から、投入後の想定 Config と差分を出す再鑑ツール"
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [
     { name = "morisima923ahaha-pixel", email = "342261180+morisima923ahaha-pixel@users.noreply.github.com" }
 ]

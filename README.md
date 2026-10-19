@@ -85,3 +85,6 @@ GitHub に push するたびに、GitHub Actions が Windows でテストを全�
 - 機種や NX-OS のバージョンによる既定値の違い
 
 テスト用の Config は架空のものです（IP アドレスは RFC 5737 の例示用アドレス）。
+
+## ライセンス
+[MIT License](LICENSE)。ツールの結果は保証しません（上の ⚠️ のとおり、最終的な判断は人が行ってください）。
