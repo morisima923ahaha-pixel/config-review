@@ -61,3 +61,54 @@ def test_no_change_gives_empty_diff():
 def test_invalid_vlan_in_changes_raises_value_error():
     with pytest.raises(ValueError, match="10-2"):
         compare("vlan 1,10", "vlan 10-2")
+
+
+# 会社の人に見せるデモ（samples/demo/）が、説明どおりの結果になること
+DEMO = SAMPLES / "demo"
+
+
+def demo(prefix: str):
+    return compare(
+        (DEMO / "running-config.txt").read_text(encoding="utf-8"),
+        next(DEMO.glob(f"{prefix}_*.txt")).read_text(encoding="utf-8"),
+    )
+
+
+def test_demo_1_interface_change():
+    result = demo("1")
+
+    assert result.problems == []
+    assert "-  shutdown" in result.diff and "+  no shutdown" in result.diff
+    assert "+  switchport access vlan 40" in result.diff
+
+
+def test_demo_2_port_channel():
+    result = demo("2")
+
+    assert result.problems == []
+    interfaces = [line for line in result.expected.splitlines() if line.startswith("interface")]
+    assert interfaces.index("interface port-channel10") < interfaces.index("interface Ethernet1/1")
+    assert result.expected.count("channel-group 10 mode active") == 2
+
+
+def test_demo_3_allowed_vlan_add():
+    result = demo("3")
+
+    assert result.diff == [
+        " interface Ethernet1/1",
+        "-  switchport trunk allowed vlan 10,20",
+        "+  switchport trunk allowed vlan 10,20,30",
+    ]
+
+
+def test_demo_4_vrf_change_deletes_ip_address():
+    result = demo("4")
+
+    assert "-  ip address 192.0.2.1/24" in result.diff
+
+
+def test_demo_5_ip_address_on_l2_port_is_rejected():
+    result = demo("5")
+
+    assert [p.line for p in result.errors] == ["ip address 198.51.100.1/30"]
+    assert "ip address" not in result.expected.split("interface Ethernet1/1")[1].split("interface")[0]

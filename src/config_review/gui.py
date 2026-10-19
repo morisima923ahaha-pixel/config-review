@@ -15,7 +15,6 @@ from config_review.compare import CompareResult, compare, problem_lines, read_co
 
 TITLE = "Config再鑑アシスタント"
 CODE_FONT = ("Consolas", 10)
-SAMPLES = Path(__file__).resolve().parents[2] / "samples"
 
 # 差分の色（GitHub の差分表示に近い色）
 COLORS = {
@@ -104,7 +103,6 @@ class App(ttk.Frame):
         buttons = ttk.Frame(self, padding=(0, 6))
         buttons.pack(fill="x")
         ttk.Button(buttons, text="▶ 比較する（Ctrl+Enter）", command=self.run).pack(side="left")
-        ttk.Button(buttons, text="サンプルを読み込む", command=self.load_samples).pack(side="left", padx=6)
         ttk.Button(buttons, text="結果を保存…", command=self.save_result).pack(side="right")
         ttk.Button(buttons, text="結果をコピー", command=self.copy_result).pack(side="right", padx=6)
         self.status = ttk.Label(buttons, text="①と②を貼り付けて「比較する」を押してください")
@@ -215,18 +213,6 @@ class App(ttk.Frame):
             messagebox.showerror(TITLE, f"保存できませんでした。\n\n{error}", parent=self)
             return
         self.status.configure(text=f"保存しました：{path}")
-
-    def load_samples(self) -> None:
-        if not SAMPLES.is_dir():
-            messagebox.showinfo(TITLE, f"サンプルのフォルダが見つかりません：{SAMPLES}", parent=self)
-            return
-        try:
-            self.current.set(read_config_file(SAMPLES / "nxos_running.txt"))
-            self.changes.set(read_config_file(SAMPLES / "nxos_change.txt"))
-        except OSError as error:
-            messagebox.showerror(TITLE, f"サンプルを開けませんでした。\n\n{error}", parent=self)
-            return
-        self.run()
 
 
 def main() -> None:

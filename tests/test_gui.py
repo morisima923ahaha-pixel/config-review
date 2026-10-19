@@ -1,9 +1,12 @@
 import tkinter as tk
+from pathlib import Path
 
 import pytest
 
 from config_review.compare import read_config_file
 from config_review.gui import App
+
+DEMO = Path(__file__).parent.parent / "samples" / "demo"
 
 
 @pytest.fixture(scope="module")
@@ -60,10 +63,9 @@ def test_no_difference_message(app):
     assert "差分はありません" in app.diff_view.get("1.0", "end-1c")
 
 
-def test_samples_can_be_loaded(app):
-    app.load_samples()
-
-    assert "+hostname LAB-NX02" in app.diff_view.get("1.0", "end-1c")
+def test_no_sample_button(app):
+    # 「サンプルを読み込む」ボタンは、実際に使うときにはいらないので外した（デモは samples/demo/ のファイルを開く）
+    assert not hasattr(app, "load_samples")
 
 
 def test_read_config_file_falls_back_to_shift_jis(tmp_path):
@@ -102,7 +104,7 @@ def test_rejected_lines_are_shown_above_diff(app):
 def test_save_writes_selected_tab(app, monkeypatch, tmp_path, tab):
     path = tmp_path / "result.txt"
     monkeypatch.setattr("config_review.gui.filedialog.asksaveasfilename", lambda **kwargs: str(path))
-    app.load_samples()
+    load_demo(app)
     app.tabs.select(tab)
     view = [app.diff_view, app.expected_view, app.notes_view][tab]
 
@@ -115,7 +117,7 @@ def test_save_writes_selected_tab(app, monkeypatch, tmp_path, tab):
 def test_save_cancel_writes_nothing(app, monkeypatch, tmp_path):
     # 保存の画面で「キャンセル」を押すと、ファイル名は空文字で返ってくる
     monkeypatch.setattr("config_review.gui.filedialog.asksaveasfilename", lambda **kwargs: "")
-    app.load_samples()
+    load_demo(app)
 
     app.save_result()
 
@@ -124,7 +126,7 @@ def test_save_cancel_writes_nothing(app, monkeypatch, tmp_path):
 
 @pytest.mark.parametrize("tab", [0, 1, 2])
 def test_copy_puts_selected_tab_on_clipboard(app, tab):
-    app.load_samples()
+    load_demo(app)
     app.tabs.select(tab)
     view = [app.diff_view, app.expected_view, app.notes_view][tab]
 
@@ -132,3 +134,19 @@ def test_copy_puts_selected_tab_on_clipboard(app, tab):
 
     assert app.clipboard_get() == view.get("1.0", "end-1c")
     assert "コピーしました" in app.status.cget("text")
+
+
+def load_demo(app):
+    """「ファイルを開く…」と同じ読み方で、デモの場面 1 を入れて比較する。"""
+    app.current.set(read_config_file(DEMO / "running-config.txt"))
+    app.changes.set(read_config_file(next(DEMO.glob("1_*.txt"))))
+    app.run()
+
+
+def test_open_file_button_loads_file(app, monkeypatch):
+    path = DEMO / "running-config.txt"
+    monkeypatch.setattr("config_review.gui.filedialog.askopenfilename", lambda **kwargs: str(path))
+
+    app.current.open_file()
+
+    assert app.current.get() == read_config_file(path)

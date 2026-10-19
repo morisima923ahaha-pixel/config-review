@@ -1,0 +1,48 @@
+! デモ用の架空の現行 Config（5 つの場面で共通。IP アドレスは例示用の 192.0.2.0/24 など）
+hostname LAB-NX01
+
+feature interface-vlan
+feature lacp
+
+vlan 1,10,20,30,40
+vlan 10
+  name USER
+vlan 20
+  name SERVER
+vlan 30
+  name PRINTER
+vlan 40
+  name VOICE
+
+vrf context TENANT-A
+vrf context TENANT-B
+
+interface Vlan10
+  no shutdown
+  vrf member TENANT-A
+  ip address 192.0.2.1/24
+
+interface Ethernet1/1
+  description TO-SW01
+  switchport mode trunk
+  switchport trunk allowed vlan 10,20
+
+interface Ethernet1/2
+  description TO-SERVER01
+  switchport access vlan 20
+  spanning-tree port type edge
+
+interface Ethernet1/3
+  description TO-SW02
+  switchport
+  shutdown
+
+interface Ethernet1/4
+  description TO-SW02
+  switchport
+  shutdown
+
+interface Ethernet1/5
+  description SPARE
+  switchport
+  shutdown

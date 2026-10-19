@@ -1,0 +1,12 @@
+! 場面 2：ポートチャネルの追加（ふつうにうまくいく例）
+! Ethernet1/3・1/4 を束ねて、SW02 への port-channel10（LACP）を作る
+interface port-channel10
+  description TO-SW02
+  switchport
+  switchport mode trunk
+  switchport trunk allowed vlan 10,20,30
+interface Ethernet1/3-4
+  switchport mode trunk
+  switchport trunk allowed vlan 10,20,30
+  channel-group 10 mode active
+  no shutdown

@@ -172,7 +172,11 @@ def _merge(target: ConfigNode, changes: ConfigNode, checker: Checker | None = No
         if existing is None:
             # 消した行があれば、その場所に新しい行を入れる（差分で上下に離れないように）。
             existing = ConfigNode(text=text)
-            _replace(target, should_remove, existing)
+            if top_level and (m := PORT_CHANNEL.fullmatch(text)):
+                # 新しい port-channel は、末尾ではなく show run と同じ場所（Ethernet より前）に置く
+                target.children.insert(_port_channel_position(target, None, int(m.group(1))), existing)
+            else:
+                _replace(target, should_remove, existing)
         else:
             target.children = [
                 child
@@ -211,8 +215,8 @@ def _add_port_channels(root: ConfigNode, interface: ConfigNode, change: ConfigNo
 PORT_CHANNEL = re.compile(r"interface port-channel(\d+)")
 
 
-def _port_channel_position(root: ConfigNode, interface: ConfigNode, number: int) -> int:
-    """自動でできた port-channel を入れる場所。
+def _port_channel_position(root: ConfigNode, interface: ConfigNode | None, number: int) -> int:
+    """新しい port-channel（自動でできたもの・投入したもの）を入れる場所。
 
     show run では、port-channel は Ethernet より前に出る
     （2026-10-19 に NX-OS 10.4(2) の実機で、ほかの port-channel がないときに interface Ethernet1/1 の前に出ると確認）。
@@ -223,7 +227,9 @@ def _port_channel_position(root: ConfigNode, interface: ConfigNode, number: int)
         larger = [i for i, n in others if n > number]
         return larger[0] if larger else others[-1][0] + 1
     ethernet = next((i for i, c in enumerate(root.children) if c.text.startswith("interface Ethernet")), None)
-    return ethernet if ethernet is not None else root.children.index(interface)
+    if ethernet is not None:
+        return ethernet
+    return root.children.index(interface) if interface is not None else len(root.children)
 
 
 def _display_form(text: str) -> str:

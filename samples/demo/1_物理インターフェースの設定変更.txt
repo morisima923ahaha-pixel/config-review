@@ -1,0 +1,10 @@
+! 場面 1：物理インターフェースの設定変更（ふつうにうまくいく例）
+! Ethernet1/2 のサーバーを入れ替えて VLAN を変える。予備の Ethernet1/5 をプリンター用に使い始める
+interface Ethernet1/2
+  description TO-SERVER02
+  switchport access vlan 40
+  spanning-tree bpduguard enable
+interface Ethernet1/5
+  description TO-PRINTER01
+  switchport access vlan 30
+  no shutdown

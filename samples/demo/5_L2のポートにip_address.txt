@@ -1,0 +1,6 @@
+! 場面 5：L2 のポートに ip address（実機ではエラーになって入らない例）
+! Ethernet1/1 は switchport mode trunk の L2 のポートなので、先に「no switchport」が必要
+! 実機では「Syntax error while parsing 'ip address 198.51.100.1/30'」になる
+interface Ethernet1/1
+  description TO-RT01
+  ip address 198.51.100.1/30

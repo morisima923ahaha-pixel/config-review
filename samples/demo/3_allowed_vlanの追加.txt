@@ -1,0 +1,5 @@
+! 場面 3：トランクに VLAN を足す（add あり・なしの違い）
+! 「add」をつけたので、今の 10,20 に 30 が足されて「10,20,30」になる
+! 「add」を消して「switchport trunk allowed vlan 30」にすると、10 と 20 が消えて「30」だけになる（通信断）
+interface Ethernet1/1
+  switchport trunk allowed vlan add 30

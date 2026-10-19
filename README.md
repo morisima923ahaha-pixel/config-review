@@ -41,6 +41,9 @@ uv run config-review-gui
 2. 「▶ 比較する」（Ctrl+Enter）
 3. 下のタブで「差分」「投入後の想定 Config」「メモ（読みかえた内容）」を確認
 
+### デモ（架空の Config）
+`samples/demo/` に、5 つの場面の架空の Config があります。左に `running-config.txt`、右に場面のファイルを「ファイルを開く…」で読み込んで比較します（説明は [samples/demo/README.md](samples/demo/README.md)）。
+
 ### コマンドで使う
 ```
 uv run config-review samples/nxos_running.txt samples/nxos_change.txt
