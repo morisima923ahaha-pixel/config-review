@@ -58,15 +58,16 @@ async function fetchText(url, options) {
 
 // 一覧の中身が、組み立てたときの形どおりか（ファイル名に「/」や「..」が入っていないか など）を確かめる
 function checkManifest(manifest) {
-  const demo = manifest.demo;
+  // 文字列で、決まった形のときだけ true（数や null が来ても、文字列に直して通してしまわないように）
+  const isName = (pattern) => (value) => typeof value === "string" && pattern.test(value);
+  const demo = manifest !== null && typeof manifest === "object" ? manifest.demo : null;
   const ok =
-    demo !== null && typeof demo === "object" &&
-    typeof demo.current === "string" && Array.isArray(demo.scenes) &&
+    demo !== null && typeof demo === "object" && Array.isArray(demo.scenes) &&
     Array.isArray(manifest.modules) &&
-    manifest.modules.every((name) => /^[a-z_]+\.py$/.test(name)) &&
-    /^([0-9a-f]{7}|local)$/.test(manifest.commit) &&
-    /^[0-9.]+$/.test(manifest.pyodide) &&
-    [demo.current, ...demo.scenes].every((name) => /^[^/\\]+\.txt$/.test(name));
+    manifest.modules.every(isName(/^[a-z_]+\.py$/)) &&
+    isName(/^([0-9a-f]{7}|local)$/)(manifest.commit) &&
+    isName(/^[0-9.]+$/)(manifest.pyodide) &&
+    [demo.current, ...demo.scenes].every(isName(/^[^/\\]+\.txt$/));
   if (!ok) throw new Error("manifest.json の中身がおかしいので、読み込みを止めました");
 }
 
