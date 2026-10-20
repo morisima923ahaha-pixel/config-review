@@ -482,6 +482,52 @@ interface Ethernet1/1
   channel-group 10 mode active"""
 
 
+def test_port_channel_written_in_changes_is_placed_before_ethernet():
+    # channel-group で自動でできたときと同じ場所に置く（Codex の 7 回目 #8）
+    current = "interface Vlan10\ninterface Ethernet1/1"
+    changes = "interface port-channel10\n  description TO-SW02"
+
+    assert apply(current, changes) == """interface Vlan10
+interface port-channel10
+  description TO-SW02
+interface Ethernet1/1"""
+
+
+def test_port_channel_written_in_changes_goes_last_without_ethernet():
+    # 一部だけ貼った現行 Config で Ethernet がないときは、末尾に置く
+    current = "interface loopback0\ninterface Vlan10"
+
+    assert apply(current, "interface port-channel10") == current + "\ninterface port-channel10"
+
+
+def test_port_channel_written_twice_is_merged():
+    # Codex の 7 回目 #2
+    current = "interface Ethernet1/1"
+    changes = "interface port-channel10\n  description A\ninterface port-channel10\n  mtu 9216"
+
+    assert apply(current, changes) == """interface port-channel10
+  description A
+  mtu 9216
+interface Ethernet1/1"""
+
+
+def test_port_channel_removed_then_created_has_only_new_lines():
+    # Codex の 7 回目 #2
+    current = "interface port-channel10\n  description OLD\n  mtu 9216\ninterface Ethernet1/1"
+    changes = "no interface port-channel10\ninterface port-channel10\n  description NEW"
+
+    assert apply(current, changes) == """interface port-channel10
+  description NEW
+interface Ethernet1/1"""
+
+
+def test_port_channel_created_then_removed_is_gone():
+    # Codex の 7 回目 #2
+    changes = "interface port-channel10\n  description NEW\nno interface port-channel10"
+
+    assert apply("interface Ethernet1/1", changes) == "interface Ethernet1/1"
+
+
 def test_existing_channel_group_does_not_add_port_channel():
     # 一部だけ貼った現行 Config では、port-channel のブロックを貼っていないだけかもしれない
     current = "interface Ethernet1/1\n  channel-group 10 mode active"

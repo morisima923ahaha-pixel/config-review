@@ -88,7 +88,25 @@ def test_demo_2_port_channel():
     assert result.problems == []
     interfaces = [line for line in result.expected.splitlines() if line.startswith("interface")]
     assert interfaces.index("interface port-channel10") < interfaces.index("interface Ethernet1/1")
-    assert result.expected.count("channel-group 10 mode active") == 2
+    # README の説明（範囲指定を 1 つずつに分ける・member にも同じ設定が入る）まで固定する（Codex の 7 回目 #8）
+    member = [
+        "-  shutdown",
+        "+  no shutdown",
+        "+  switchport mode trunk",
+        "+  switchport trunk allowed vlan 10,20,30",
+        "+  channel-group 10 mode active",
+    ]
+    assert result.diff == [
+        "+interface port-channel10",
+        "+  description TO-SW02",
+        "+  switchport",
+        "+  switchport mode trunk",
+        "+  switchport trunk allowed vlan 10,20,30",
+        " interface Ethernet1/3",
+        *member,
+        " interface Ethernet1/4",
+        *member,
+    ]
 
 
 def test_demo_3_allowed_vlan_add():
