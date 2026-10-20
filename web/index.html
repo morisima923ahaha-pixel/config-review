@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- 通信してよい相手を、このサイトだけにする（入力した Config をほかのサイトへ送れないようにする）。
+       wasm-unsafe-eval は、Pyodide（WebAssembly）を動かすために要る -->
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; style-src 'self'; img-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <meta name="referrer" content="no-referrer">
+  <title>Config再鑑アシスタント（Web 版）</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>Config再鑑アシスタント <span class="sub">NX-OS・Web 版（お試し）</span></h1>
+    <p class="lead">現行の running-config と投入する Config から、投入後の想定 Config と差分を作ります。</p>
+  </header>
+
+  <section class="caution" role="note">
+    <p><strong>⚠️ サンプルで試すためのページです。会社や本番の Config は貼り付けないでください。</strong></p>
+    <p>計算はこのブラウザの中だけで行います。このページの処理で、入力した内容をどこかへ送ることはありません（ほかのサイトとは通信しない設定にしています）。</p>
+    <p>結果は NX-OS の動きをもとにした「予想」で、保証ではありません。最終的な判断は必ず人が行ってください。</p>
+  </section>
+
+  <section class="demos">
+    <span class="label">デモ（架空の Config）：</span>
+    <span id="demo-buttons"></span>
+  </section>
+
+  <section class="inputs">
+    <div class="input">
+      <div class="input-header">
+        <label for="current">① 現行の running-config</label>
+        <span>
+          <button type="button" data-open="current">ファイルを開く…</button>
+          <button type="button" data-clear="current">クリア</button>
+        </span>
+      </div>
+      <textarea id="current" spellcheck="false" wrap="off"></textarea>
+    </div>
+    <div class="input">
+      <div class="input-header">
+        <label for="changes">② 投入する Config</label>
+        <span>
+          <button type="button" data-open="changes">ファイルを開く…</button>
+          <button type="button" data-clear="changes">クリア</button>
+        </span>
+      </div>
+      <textarea id="changes" spellcheck="false" wrap="off"></textarea>
+    </div>
+  </section>
+  <input type="file" id="file-input" accept=".txt,.log,.cfg,.conf,text/plain" hidden>
+
+  <section class="actions">
+    <button type="button" id="run" class="primary" disabled>▶ 比較する（Ctrl+Enter）</button>
+    <span id="status" role="status" aria-live="polite">準備中…（はじめて開くときは、ブラウザで Python を動かす部品を 12MB ほど読み込みます）</span>
+    <span class="right">
+      <button type="button" id="copy">結果をコピー</button>
+      <button type="button" id="save">結果を保存…</button>
+    </span>
+  </section>
+
+  <section class="results">
+    <div class="tabs" role="tablist">
+      <button type="button" role="tab" id="tab-diff" aria-controls="view-diff" aria-selected="true">差分</button>
+      <button type="button" role="tab" id="tab-expected" aria-controls="view-expected" aria-selected="false">投入後の想定 Config</button>
+      <button type="button" role="tab" id="tab-notes" aria-controls="view-notes" aria-selected="false">メモ</button>
+    </div>
+    <pre id="view-diff" role="tabpanel" aria-labelledby="tab-diff" class="view"></pre>
+    <pre id="view-expected" role="tabpanel" aria-labelledby="tab-expected" class="view" hidden></pre>
+    <pre id="view-notes" role="tabpanel" aria-labelledby="tab-notes" class="view" hidden></pre>
+    <p class="legend">差分の見方：赤い「-」の行は消える行、緑の「+」の行は増える行、灰色の行は変わらない親の行（どこの設定かを示す）</p>
+  </section>
+
+  <footer>
+    <a href="https://github.com/morisima923ahaha-pixel/config-review">GitHub のリポジトリ</a>（MIT License）
+    ・ブラウザの中で Python を動かす <a href="https://pyodide.org/">Pyodide</a> <span id="pyodide-version"></span>（MPL-2.0）を同梱
+    ・<span id="build-info"></span>
+  </footer>
+  <script src="pyodide/pyodide.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

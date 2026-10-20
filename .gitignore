@@ -14,3 +14,6 @@ wheels/
 
 # AI レビューに渡すために一時的に作るファイル
 review_code.txt
+
+# Web 版を組み立てたフォルダ（web/build_site.py が作る。公開は GitHub Actions が行う）
+_site/

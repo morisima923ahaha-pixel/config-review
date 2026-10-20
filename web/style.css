@@ -1,0 +1,122 @@
+/* 色は tkinter 版（gui.py の COLORS）と同じ。暗い画面の設定にしている人には、暗い色にする */
+:root {
+  --bg: #ffffff;
+  --fg: #1f2328;
+  --muted: #57606a;
+  --border: #d0d7de;
+  --panel: #f6f8fa;
+  --removed-bg: #ffebe9;
+  --removed-fg: #82071e;
+  --added-bg: #dafbe1;
+  --added-fg: #116329;
+  --error-bg: #cf222e;
+  --error-fg: #ffffff;
+  --warning-bg: #fff8c5;
+  --warning-fg: #7d4e00;
+  --caution-bg: #fff8c5;
+  --caution-border: #d4a72c;
+  --primary: #1f6feb;
+  --alert: #cf222e;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0d1117;
+    --fg: #e6edf3;
+    --muted: #8d96a0;
+    --border: #30363d;
+    --panel: #161b22;
+    --removed-bg: #4b1418;
+    --removed-fg: #ffdcd7;
+    --added-bg: #12361f;
+    --added-fg: #aff5b4;
+    --error-bg: #b62324;
+    --warning-bg: #3d2f00;
+    --warning-fg: #f8e3a1;
+    --caution-bg: #2e2600;
+    --caution-border: #9e6a03;
+    --primary: #388bfd;
+    --alert: #ff7b72;
+  }
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0 auto;
+  max-width: 1400px;
+  padding: 12px 16px 24px;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: "Segoe UI", "Hiragino Sans", "Meiryo", sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+}
+a { color: var(--primary); }
+h1 { font-size: 1.4rem; margin: 0 0 4px; }
+h1 .sub { font-size: 0.9rem; font-weight: normal; color: var(--muted); }
+.lead { margin: 0 0 8px; color: var(--muted); }
+
+.caution {
+  background: var(--caution-bg);
+  border: 1px solid var(--caution-border);
+  border-radius: 6px;
+  padding: 8px 12px;
+  margin-bottom: 10px;
+}
+.caution p { margin: 2px 0; }
+
+button {
+  font: inherit;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--fg);
+  cursor: pointer;
+}
+button:hover:not(:disabled) { border-color: var(--muted); }
+button:disabled { opacity: 0.5; cursor: default; }
+button.primary { background: var(--primary); border-color: var(--primary); color: #ffffff; font-weight: bold; }
+
+.demos { margin-bottom: 8px; }
+.demos .label { color: var(--muted); }
+#demo-buttons button { margin: 2px 4px 2px 0; }
+
+.inputs { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.input-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; gap: 6px; }
+.input-header label { font-weight: bold; }
+textarea, .view {
+  width: 100%;
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 13px;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+textarea { height: 260px; padding: 6px; resize: vertical; white-space: pre; overflow: auto; }
+
+.actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 10px 0; }
+.actions .right { margin-left: auto; display: flex; gap: 6px; }
+#status.alert { color: var(--alert); font-weight: bold; }
+
+.tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--border); }
+.tabs button { border-radius: 6px 6px 0 0; border-bottom: none; }
+.tabs button[aria-selected="true"] { background: var(--bg); font-weight: bold; border-color: var(--border); }
+.view { margin: 0; padding: 6px 0; height: 360px; overflow: auto; border-top-left-radius: 0; }
+.view .line { display: block; padding: 0 8px; white-space: pre; min-height: 1.2em; }
+.view .removed { background: var(--removed-bg); color: var(--removed-fg); }
+.view .added { background: var(--added-bg); color: var(--added-fg); }
+.view .context { color: var(--muted); }
+/* エラーと要確認は文章が長いので折り返す（tkinter 版と同じ） */
+.view .error { background: var(--error-bg); color: var(--error-fg); font-weight: bold; white-space: pre-wrap; }
+.view .warning { background: var(--warning-bg); color: var(--warning-fg); white-space: pre-wrap; }
+.legend { color: var(--muted); margin: 4px 0 0; }
+
+footer { margin-top: 16px; color: var(--muted); font-size: 12px; }
+
+/* スマホなど幅のせまい画面では、入力欄を縦に並べる */
+@media (max-width: 800px) {
+  .inputs { grid-template-columns: 1fr; }
+  textarea { height: 180px; }
+  .actions .right { margin-left: 0; }
+}

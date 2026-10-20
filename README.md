@@ -32,6 +32,18 @@ Config 投入前のダブルチェック（再鑑）の手助けを目的にし�
 
 ## 使い方
 
+### ブラウザで試す（Web 版・インストール不要）
+**https://morisima923ahaha-pixel.github.io/config-review/**
+
+デモ 1〜5 のボタンを押すと、架空の Config で結果を見られます。
+
+> ⚠️ サンプルで試すためのページです。**会社や本番の Config は貼り付けないでください。**
+> 計算はブラウザの中だけで行い、このページの処理で入力をどこかへ送ることはありません（ほかのサイトとは通信しない設定にしています）。
+
+- [Pyodide](https://pyodide.org/)（ブラウザの中で Python を動かす仕組み）で、下の「画面で使う」と**同じ Python のコード**を動かしています
+- Pyodide は CDN から読み込まず、決まった版（0.29.5）をハッシュで確かめてから、このページに同梱しています
+- 中身は `web/`。main に push すると、GitHub Actions が組み立てて公開します（`.github/workflows/pages.yml`）
+
 ### 画面で使う
 `start-gui.bat` をダブルクリック、またはコマンドで：
 ```
@@ -70,6 +82,13 @@ uv run pytest -q
 
 GitHub に push するたびに、GitHub Actions が Windows でテストを全部動かします（`.github/workflows/test.yml`）。
 
+Web 版を手元で確かめるとき（組み立てたフォルダを、小さなサーバーで開く）：
+```
+uv run python web/build_site.py _site
+uv run python -m http.server 8000 --directory _site
+```
+ブラウザで http://localhost:8000/ を開きます（ファイルをダブルクリックで開くと、ブラウザの決まりで動きません）。
+
 | ファイル | 役割 |
 |---|---|
 | `src/config_review/parser.py` | Config をインデントから親子のツリーにする |
@@ -80,6 +99,7 @@ GitHub に push するたびに、GitHub Actions が Windows でテストを全�
 | `src/config_review/diff.py` | 現行と想定の差分を作る |
 | `src/config_review/compare.py` | 上の流れをまとめた入り口（CLI と GUI が使う） |
 | `src/config_review/gui.py` | 画面（tkinter） |
+| `web/` | Web 版の画面（`index.html`・`app.js`・`style.css`）、Python とのつなぎ（`bridge.py`）、組み立て（`build_site.py`） |
 
 ## まだ対応していないこと
 - `banner motd` のような複数行の設定

@@ -1,0 +1,47 @@
+# main に push したら、Web 版（web/）を組み立てて GitHub Pages に公開する。
+# テストが 1 件でも失敗したら公開しない（前の版が公開されたまま残る）。
+# main 以外のブランチに push したときは、組み立てるところまで（公開はしない）。main に入れる前に確かめるため。
+# 組み立て方は web/build_site.py（手元で確かめるときと同じもの）。
+name: pages
+
+on:
+  push:
+  workflow_dispatch:  # Actions のタブから手で動かすこともできる
+
+# 権限は、ジョブごとに要るものだけ（公開の権限は deploy だけ）
+permissions:
+  contents: read
+
+# 続けて push したときに、公開が 2 つ同時に走らないようにする（途中の公開は止めない）
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v7
+      - run: uv sync
+      # 画面（tkinter）のテストは、画面のない Linux では飛ばされる。Windows でのテストは test.yml で動かしている
+      - run: uv run pytest -q
+      # Pyodide は npm の公式の置き場所から取ってきて、ハッシュを確かめてから同梱する
+      - run: uv run python web/build_site.py _site
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write     # Pages に公開する
+      id-token: write  # 公開する人が、このリポジトリの Actions であることの証明
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5
